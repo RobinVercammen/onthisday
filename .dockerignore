@@ -1,0 +1,12 @@
+**/bin/
+**/obj/
+**/.vs/
+**/.vscode/
+**/.idea/
+**/node_modules/
+**/*.db
+**/*.db-shm
+**/*.db-wal
+.git
+.gitignore
+*.md

@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>On This Day — {{MONTH_NAME}} {{DAY}}</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0a0a0a;
+            color: #e0e0e0;
+            min-height: 100vh;
+        }
+
+        header {
+            text-align: center;
+            padding: 2rem 1rem 1rem;
+            border-bottom: 1px solid #222;
+        }
+
+        header h1 {
+            font-size: 2rem;
+            font-weight: 300;
+            color: #fff;
+            margin-bottom: 0.5rem;
+        }
+
+        header h1 span { font-weight: 600; }
+
+        nav {
+            display: flex;
+            justify-content: center;
+            gap: 1.5rem;
+            margin-top: 1rem;
+        }
+
+        nav a {
+            color: #8ab4f8;
+            text-decoration: none;
+            padding: 0.4rem 0.8rem;
+            border-radius: 6px;
+            transition: background 0.2s;
+        }
+
+        nav a:hover { background: #1a1a2e; }
+
+        main { max-width: 1400px; margin: 0 auto; padding: 1.5rem; }
+
+        .year-section { margin-bottom: 2.5rem; }
+
+        .year-header {
+            font-size: 1.5rem;
+            font-weight: 300;
+            color: #aaa;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid #1a1a1a;
+            margin-bottom: 1rem;
+        }
+
+        .year-header span {
+            color: #666;
+            font-size: 0.9rem;
+            margin-left: 0.5rem;
+        }
+
+        .photo-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 0.75rem;
+        }
+
+        .photo-card {
+            position: relative;
+            border-radius: 8px;
+            overflow: hidden;
+            background: #111;
+            aspect-ratio: 1;
+        }
+
+        .photo-card img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            cursor: pointer;
+            transition: transform 0.3s;
+        }
+
+        .photo-card img:hover { transform: scale(1.03); }
+
+        .photo-info {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 0.5rem;
+            background: linear-gradient(transparent, rgba(0,0,0,0.8));
+            font-size: 0.75rem;
+            color: #bbb;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .photo-card:hover .photo-info { opacity: 1; }
+
+        .empty-state {
+            text-align: center;
+            padding: 4rem 1rem;
+            color: #555;
+        }
+
+        .empty-state h2 { font-weight: 300; font-size: 1.5rem; margin-bottom: 0.5rem; }
+
+        /* CSS-only lightbox */
+        .lightbox {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.95);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .lightbox:target {
+            display: flex;
+        }
+
+        .lightbox img {
+            max-width: 95vw;
+            max-height: 95vh;
+            object-fit: contain;
+            border-radius: 4px;
+        }
+
+        .lightbox-close {
+            position: fixed;
+            top: 1rem;
+            right: 1.5rem;
+            color: #fff;
+            font-size: 2rem;
+            text-decoration: none;
+            z-index: 1001;
+            line-height: 1;
+        }
+
+        .lightbox-close:hover { color: #8ab4f8; }
+
+        footer {
+            text-align: center;
+            padding: 2rem 1rem;
+            color: #333;
+            font-size: 0.8rem;
+        }
+
+        @media (max-width: 600px) {
+            .photo-grid {
+                grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+                gap: 0.5rem;
+            }
+            header h1 { font-size: 1.4rem; }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>On This Day — <span>{{MONTH_NAME}} {{DAY}}</span></h1>
+        <nav>
+            <a href="{{PREV_LINK}}">&larr; {{PREV_LABEL}}</a>
+            <a href="/">Today</a>
+            <a href="{{NEXT_LINK}}">{{NEXT_LABEL}} &rarr;</a>
+        </nav>
+    </header>
+    <main>
+        {{CONTENT}}
+    </main>
+    {{LIGHTBOXES}}
+    <footer>On This Day &mdash; Photo Memories</footer>
+</body>
+</html>

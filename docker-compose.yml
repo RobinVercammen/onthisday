@@ -1,0 +1,14 @@
+services:
+  onthisday:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - PHOTO_DIRECTORIES=/photos/library1;/photos/library2
+      - DATABASE_PATH=/data/onthisday.db
+      - RESCAN_INTERVAL_HOURS=6
+    volumes:
+      - ./data:/data
+      - /path/to/your/photos1:/photos/library1:ro
+      - /path/to/your/photos2:/photos/library2:ro
+    restart: unless-stopped
