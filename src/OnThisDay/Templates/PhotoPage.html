@@ -79,6 +79,14 @@
             aspect-ratio: 1;
         }
 
+        .photo-card a {
+            display: block;
+            width: 100%;
+            height: 100%;
+            text-decoration: none;
+            color: inherit;
+        }
+
         .photo-card img {
             width: 100%;
             height: 100%;
@@ -105,9 +113,6 @@
         .photo-card:hover .photo-info { opacity: 1; }
 
         /* Video thumbnail card */
-        .video-card { position: relative; }
-        .video-card a { text-decoration: none; color: inherit; display: block; width: 100%; height: 100%; }
-
         .video-card video {
             width: 100%;
             height: 100%;
@@ -213,22 +218,56 @@
         <span class="lightbox-close" id="lightbox-close">&times;</span>
         <div id="lightbox-content"></div>
     </div>
-    <div id="scroll-sentinel" style="height:1px;"></div>
     <footer>On This Day &mdash; Photo Memories</footer>
-    <script id="remaining-items" type="application/json">{{ITEM_DATA}}</script>
     <script>
-        // === Video lazy-load observer ===
-        const videoObserver = new IntersectionObserver((entries) => {
+        // === Virtual recycling: populate/depopulate cards as they enter/leave viewport ===
+        const PLAY_SVG = '<svg class="play-icon" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>';
+
+        function populateCard(card) {
+            if (card.querySelector('a')) return; // already populated
+            const id = card.dataset.id;
+            const type = card.dataset.type;
+            const a = document.createElement('a');
+            a.href = '#';
+            a.dataset.id = id;
+            a.dataset.type = type;
+            a.className = 'lightbox-trigger';
+
+            if (type === 'video') {
+                const video = document.createElement('video');
+                video.src = '/photo/' + id + '#t=0.5';
+                video.preload = 'metadata';
+                video.muted = true;
+                a.appendChild(video);
+                const overlay = document.createElement('div');
+                overlay.className = 'video-overlay';
+                overlay.innerHTML = PLAY_SVG;
+                a.appendChild(overlay);
+            } else {
+                const img = document.createElement('img');
+                img.src = '/photo/' + id;
+                a.appendChild(img);
+            }
+
+            card.insertBefore(a, card.firstChild);
+        }
+
+        function depopulateCard(card) {
+            const a = card.querySelector('a');
+            if (a) a.remove();
+        }
+
+        const recycler = new IntersectionObserver((entries) => {
             for (const e of entries) {
                 if (e.isIntersecting) {
-                    const v = e.target;
-                    v.src = v.dataset.src;
-                    v.preload = 'metadata';
-                    videoObserver.unobserve(v);
+                    populateCard(e.target);
+                } else {
+                    depopulateCard(e.target);
                 }
             }
-        }, { rootMargin: '200px' });
-        document.querySelectorAll('video[data-src]').forEach(v => videoObserver.observe(v));
+        }, { rootMargin: '500px' });
+
+        document.querySelectorAll('.photo-card').forEach(c => recycler.observe(c));
 
         // === Single reusable lightbox ===
         const lightbox = document.getElementById('lightbox');
@@ -269,59 +308,6 @@
         document.getElementById('lightbox-close').addEventListener('click', closeLightbox);
         lightbox.addEventListener('click', (e) => { if (e.target === lightbox) closeLightbox(); });
         document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeLightbox(); });
-
-        // === Batch infinite scroll ===
-        const BATCH_SIZE = 20;
-        const dataEl = document.getElementById('remaining-items');
-        const items = JSON.parse(dataEl.textContent || '[]');
-        let cursor = 0;
-
-        function escapeHtml(text) {
-            const d = document.createElement('div');
-            d.textContent = text;
-            return d.innerHTML;
-        }
-
-        function renderBatch() {
-            if (cursor >= items.length) { scrollObserver.disconnect(); return; }
-            const batch = items.slice(cursor, cursor + BATCH_SIZE);
-            cursor += BATCH_SIZE;
-
-            for (const item of batch) {
-                const grid = document.querySelector('.photo-grid[data-year="' + item.year + '"]');
-                if (!grid) continue;
-
-                const card = document.createElement('div');
-                card.className = 'photo-card' + (item.type === 'video' ? ' video-card' : '');
-
-                if (item.type === 'video') {
-                    card.innerHTML =
-                        '<a href="#" data-id="' + item.id + '" data-type="video" class="lightbox-trigger">' +
-                            '<video data-src="/photo/' + item.id + '#t=0.5" preload="none" muted></video>' +
-                            '<div class="video-overlay">' +
-                                '<svg class="play-icon" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>' +
-                            '</div>' +
-                        '</a>' +
-                        '<div class="photo-info">' + escapeHtml(item.fileName) + '</div>';
-                    const video = card.querySelector('video[data-src]');
-                    if (video) videoObserver.observe(video);
-                } else {
-                    card.innerHTML =
-                        '<a href="#" data-id="' + item.id + '" data-type="photo" class="lightbox-trigger">' +
-                            '<img src="/photo/' + item.id + '?w=300" alt="' + escapeHtml(item.fileName) + '" loading="lazy" />' +
-                        '</a>' +
-                        '<div class="photo-info">' + escapeHtml(item.fileName) + '</div>';
-                }
-
-                grid.appendChild(card);
-            }
-        }
-
-        const sentinel = document.getElementById('scroll-sentinel');
-        const scrollObserver = new IntersectionObserver((entries) => {
-            if (entries[0].isIntersecting) renderBatch();
-        }, { rootMargin: '600px' });
-        if (items.length > 0) scrollObserver.observe(sentinel);
     </script>
 </body>
 </html>

@@ -1,7 +1,5 @@
 using System.Globalization;
 using System.Text;
-using System.Text.Json;
-using ImageMagick;
 using Microsoft.AspNetCore.StaticFiles;
 using OnThisDay.Models;
 using OnThisDay.Services;
@@ -39,7 +37,6 @@ public static class PhotoEndpoints
 
     private static async Task<IResult> HandlePhotoServe(
         int id,
-        HttpContext context,
         PhotoQueryService queryService)
     {
         var photo = await queryService.GetPhotoById(id);
@@ -49,27 +46,12 @@ public static class PhotoEndpoints
         if (!File.Exists(photo.FilePath))
             return Results.NotFound();
 
-        // On-the-fly resize for photos when ?w= is specified
-        if (photo.MediaType == MediaType.Photo
-            && int.TryParse(context.Request.Query["w"], out var width)
-            && width > 0 && width <= 2000)
-        {
-            using var image = new MagickImage(photo.FilePath);
-            image.Thumbnail(new MagickGeometry((uint)width, 0) { IgnoreAspectRatio = false });
-            image.Quality = 60;
-            image.Format = MagickFormat.Jpeg;
-
-            return Results.Bytes(image.ToByteArray(), "image/jpeg");
-        }
-
         if (!ContentTypeProvider.TryGetContentType(photo.FilePath, out var contentType))
             contentType = "application/octet-stream";
 
         var stream = File.OpenRead(photo.FilePath);
         return Results.File(stream, contentType, enableRangeProcessing: true);
     }
-
-    private const int InitialBatchSize = 20;
 
     private static string RenderPage(int month, int day, Dictionary<int, List<PhotoRecord>> photosByYear)
     {
@@ -85,8 +67,6 @@ public static class PhotoEndpoints
         var nextLabel = $"{CultureInfo.InvariantCulture.DateTimeFormat.GetAbbreviatedMonthName(nextDate.Month)} {nextDate.Day}";
 
         var content = new StringBuilder();
-        var remainingItems = new List<object>();
-        var renderedCount = 0;
 
         if (photosByYear.Count == 0)
         {
@@ -110,26 +90,18 @@ public static class PhotoEndpoints
                 content.Append($"""
                     <section class="year-section">
                         <h2 class="year-header">{year}<span>{string.Join(", ", countParts)}</span></h2>
-                        <div class="photo-grid" data-year="{year}">
+                        <div class="photo-grid">
                 """);
 
                 foreach (var photo in photos)
                 {
-                    if (renderedCount < InitialBatchSize)
-                    {
-                        content.Append(RenderGridCard(photo));
-                        renderedCount++;
-                    }
-                    else
-                    {
-                        remainingItems.Add(new
-                        {
-                            id = photo.Id,
-                            type = photo.MediaType == MediaType.Video ? "video" : "photo",
-                            fileName = photo.FileName,
-                            year = photo.Year
-                        });
-                    }
+                    var type = photo.MediaType == MediaType.Video ? "video" : "photo";
+                    var cls = photo.MediaType == MediaType.Video ? "photo-card video-card" : "photo-card";
+                    content.Append($"""
+                            <div class="{cls}" data-id="{photo.Id}" data-type="{type}">
+                                <div class="photo-info">{Escape(photo.FileName)}</div>
+                            </div>
+                    """);
                 }
 
                 content.Append("""
@@ -139,10 +111,6 @@ public static class PhotoEndpoints
             }
         }
 
-        var itemDataJson = remainingItems.Count > 0
-            ? JsonSerializer.Serialize(remainingItems)
-            : "[]";
-
         return template
             .Replace("{{MONTH_NAME}}", monthName)
             .Replace("{{DAY}}", day.ToString())
@@ -150,35 +118,7 @@ public static class PhotoEndpoints
             .Replace("{{PREV_LABEL}}", prevLabel)
             .Replace("{{NEXT_LINK}}", $"/?month={nextDate.Month}&day={nextDate.Day}")
             .Replace("{{NEXT_LABEL}}", nextLabel)
-            .Replace("{{CONTENT}}", content.ToString())
-            .Replace("{{ITEM_DATA}}", itemDataJson);
-    }
-
-    private static string RenderGridCard(PhotoRecord photo)
-    {
-        if (photo.MediaType == MediaType.Video)
-        {
-            return $"""
-                    <div class="photo-card video-card">
-                        <a href="#" data-id="{photo.Id}" data-type="video" class="lightbox-trigger">
-                            <video data-src="/photo/{photo.Id}#t=0.5" preload="none" muted></video>
-                            <div class="video-overlay">
-                                <svg class="play-icon" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
-                            </div>
-                        </a>
-                        <div class="photo-info">{Escape(photo.FileName)}</div>
-                    </div>
-            """;
-        }
-
-        return $"""
-                <div class="photo-card">
-                    <a href="#" data-id="{photo.Id}" data-type="photo" class="lightbox-trigger">
-                        <img src="/photo/{photo.Id}?w=300" alt="{Escape(photo.FileName)}" loading="lazy" />
-                    </a>
-                    <div class="photo-info">{Escape(photo.FileName)}</div>
-                </div>
-        """;
+            .Replace("{{CONTENT}}", content.ToString());
     }
 
     private static string GetTemplate()
