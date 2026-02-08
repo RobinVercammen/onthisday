@@ -1,11 +1,9 @@
 using System.Globalization;
 using System.Text;
+using ImageMagick;
 using Microsoft.AspNetCore.StaticFiles;
 using OnThisDay.Models;
 using OnThisDay.Services;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Formats.Jpeg;
-using SixLabors.ImageSharp.Processing;
 
 namespace OnThisDay.Endpoints;
 
@@ -55,16 +53,12 @@ public static class PhotoEndpoints
             && int.TryParse(context.Request.Query["w"], out var width)
             && width > 0 && width <= 2000)
         {
-            using var image = await Image.LoadAsync(photo.FilePath);
-            image.Mutate(x => x.Resize(new ResizeOptions
-            {
-                Mode = ResizeMode.Max,
-                Size = new Size(width, 0)
-            }));
+            using var image = new MagickImage(photo.FilePath);
+            image.Resize(new MagickGeometry((uint)width, 0) { IgnoreAspectRatio = false });
+            image.Quality = 80;
+            image.Format = MagickFormat.Jpeg;
 
-            using var ms = new MemoryStream();
-            await image.SaveAsJpegAsync(ms, new JpegEncoder { Quality = 80 });
-            return Results.Bytes(ms.ToArray(), "image/jpeg");
+            return Results.Bytes(image.ToByteArray(), "image/jpeg");
         }
 
         if (!ContentTypeProvider.TryGetContentType(photo.FilePath, out var contentType))
@@ -122,11 +116,12 @@ public static class PhotoEndpoints
                         content.Append($"""
                                 <div class="photo-card video-card">
                                     <a href="#lightbox-{photo.Id}">
-                                        <div class="video-placeholder">
+                                        <video src="/photo/{photo.Id}#t=0.5" preload="metadata" muted></video>
+                                        <div class="video-overlay">
                                             <svg class="play-icon" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
-                                            <span class="video-filename">{Escape(photo.FileName)}</span>
                                         </div>
                                     </a>
+                                    <div class="photo-info">{Escape(photo.FileName)}</div>
                                 </div>
                         """);
 
