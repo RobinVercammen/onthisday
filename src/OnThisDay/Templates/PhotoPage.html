@@ -145,7 +145,7 @@
 
         .empty-state h2 { font-weight: 300; font-size: 1.5rem; margin-bottom: 0.5rem; }
 
-        /* CSS-only lightbox */
+        /* Lightbox */
         .lightbox {
             display: none;
             position: fixed;
@@ -156,7 +156,7 @@
             align-items: center;
         }
 
-        .lightbox:target {
+        .lightbox.active {
             display: flex;
         }
 
@@ -176,6 +176,7 @@
             text-decoration: none;
             z-index: 1001;
             line-height: 1;
+            cursor: pointer;
         }
 
         .lightbox-close:hover { color: #8ab4f8; }
@@ -208,20 +209,119 @@
     <main>
         {{CONTENT}}
     </main>
-    {{LIGHTBOXES}}
+    <div id="lightbox" class="lightbox">
+        <span class="lightbox-close" id="lightbox-close">&times;</span>
+        <div id="lightbox-content"></div>
+    </div>
+    <div id="scroll-sentinel" style="height:1px;"></div>
     <footer>On This Day &mdash; Photo Memories</footer>
+    <script id="remaining-items" type="application/json">{{ITEM_DATA}}</script>
     <script>
-        const observer = new IntersectionObserver((entries) => {
+        // === Video lazy-load observer ===
+        const videoObserver = new IntersectionObserver((entries) => {
             for (const e of entries) {
                 if (e.isIntersecting) {
                     const v = e.target;
                     v.src = v.dataset.src;
                     v.preload = 'metadata';
-                    observer.unobserve(v);
+                    videoObserver.unobserve(v);
                 }
             }
         }, { rootMargin: '200px' });
-        document.querySelectorAll('video[data-src]').forEach(v => observer.observe(v));
+        document.querySelectorAll('video[data-src]').forEach(v => videoObserver.observe(v));
+
+        // === Single reusable lightbox ===
+        const lightbox = document.getElementById('lightbox');
+        const lightboxContent = document.getElementById('lightbox-content');
+
+        function openLightbox(id, type) {
+            lightboxContent.innerHTML = '';
+            if (type === 'video') {
+                const video = document.createElement('video');
+                video.src = '/photo/' + id;
+                video.controls = true;
+                video.preload = 'metadata';
+                video.autoplay = true;
+                lightboxContent.appendChild(video);
+            } else {
+                const img = document.createElement('img');
+                img.src = '/photo/' + id;
+                lightboxContent.appendChild(img);
+            }
+            document.body.style.overflow = 'hidden';
+            lightbox.classList.add('active');
+        }
+
+        function closeLightbox() {
+            lightbox.classList.remove('active');
+            document.body.style.overflow = '';
+            lightboxContent.innerHTML = '';
+        }
+
+        document.addEventListener('click', (e) => {
+            const trigger = e.target.closest('.lightbox-trigger');
+            if (trigger) {
+                e.preventDefault();
+                openLightbox(trigger.dataset.id, trigger.dataset.type);
+            }
+        });
+
+        document.getElementById('lightbox-close').addEventListener('click', closeLightbox);
+        lightbox.addEventListener('click', (e) => { if (e.target === lightbox) closeLightbox(); });
+        document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeLightbox(); });
+
+        // === Batch infinite scroll ===
+        const BATCH_SIZE = 20;
+        const dataEl = document.getElementById('remaining-items');
+        const items = JSON.parse(dataEl.textContent || '[]');
+        let cursor = 0;
+
+        function escapeHtml(text) {
+            const d = document.createElement('div');
+            d.textContent = text;
+            return d.innerHTML;
+        }
+
+        function renderBatch() {
+            if (cursor >= items.length) { scrollObserver.disconnect(); return; }
+            const batch = items.slice(cursor, cursor + BATCH_SIZE);
+            cursor += BATCH_SIZE;
+
+            for (const item of batch) {
+                const grid = document.querySelector('.photo-grid[data-year="' + item.year + '"]');
+                if (!grid) continue;
+
+                const card = document.createElement('div');
+                card.className = 'photo-card' + (item.type === 'video' ? ' video-card' : '');
+
+                if (item.type === 'video') {
+                    card.innerHTML =
+                        '<a href="#" data-id="' + item.id + '" data-type="video" class="lightbox-trigger">' +
+                            '<video data-src="/photo/' + item.id + '#t=0.5" preload="none" muted></video>' +
+                            '<div class="video-overlay">' +
+                                '<svg class="play-icon" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>' +
+                            '</div>' +
+                        '</a>' +
+                        '<div class="photo-info">' + escapeHtml(item.fileName) + '</div>';
+                    const video = card.querySelector('video[data-src]');
+                    if (video) videoObserver.observe(video);
+                } else {
+                    card.innerHTML =
+                        '<a href="#" data-id="' + item.id + '" data-type="photo" class="lightbox-trigger">' +
+                            '<img src="/photo/' + item.id + '?w=300" alt="' + escapeHtml(item.fileName) + '" loading="lazy" />' +
+                        '</a>' +
+                        '<div class="photo-info">' + escapeHtml(item.fileName) + '</div>';
+                }
+
+                grid.appendChild(card);
+            }
+        }
+
+        const sentinel = document.getElementById('scroll-sentinel');
+        const scrollObserver = new IntersectionObserver((entries) => {
+            if (entries[0].isIntersecting) renderBatch();
+        }, { rootMargin: '600px' });
+        if (items.length > 0) scrollObserver.observe(sentinel);
     </script>
 </body>
 </html>
