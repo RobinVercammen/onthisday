@@ -54,8 +54,8 @@ public static class PhotoEndpoints
             && width > 0 && width <= 2000)
         {
             using var image = new MagickImage(photo.FilePath);
-            image.Resize(new MagickGeometry((uint)width, 0) { IgnoreAspectRatio = false });
-            image.Quality = 80;
+            image.Thumbnail(new MagickGeometry((uint)width, 0) { IgnoreAspectRatio = false });
+            image.Quality = 60;
             image.Format = MagickFormat.Jpeg;
 
             return Results.Bytes(image.ToByteArray(), "image/jpeg");
@@ -116,7 +116,7 @@ public static class PhotoEndpoints
                         content.Append($"""
                                 <div class="photo-card video-card">
                                     <a href="#lightbox-{photo.Id}">
-                                        <video src="/photo/{photo.Id}#t=0.5" preload="metadata" muted></video>
+                                        <video data-src="/photo/{photo.Id}#t=0.5" preload="none" muted></video>
                                         <div class="video-overlay">
                                             <svg class="play-icon" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
                                         </div>

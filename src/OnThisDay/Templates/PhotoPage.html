@@ -210,5 +210,18 @@
     </main>
     {{LIGHTBOXES}}
     <footer>On This Day &mdash; Photo Memories</footer>
+    <script>
+        const observer = new IntersectionObserver((entries) => {
+            for (const e of entries) {
+                if (e.isIntersecting) {
+                    const v = e.target;
+                    v.src = v.dataset.src;
+                    v.preload = 'metadata';
+                    observer.unobserve(v);
+                }
+            }
+        }, { rootMargin: '200px' });
+        document.querySelectorAll('video[data-src]').forEach(v => observer.observe(v));
+    </script>
 </body>
 </html>
