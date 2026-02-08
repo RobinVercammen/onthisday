@@ -3,6 +3,9 @@ using System.Text;
 using Microsoft.AspNetCore.StaticFiles;
 using OnThisDay.Models;
 using OnThisDay.Services;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Formats.Jpeg;
+using SixLabors.ImageSharp.Processing;
 
 namespace OnThisDay.Endpoints;
 
@@ -37,6 +40,7 @@ public static class PhotoEndpoints
 
     private static async Task<IResult> HandlePhotoServe(
         int id,
+        HttpContext context,
         PhotoQueryService queryService)
     {
         var photo = await queryService.GetPhotoById(id);
@@ -45,6 +49,23 @@ public static class PhotoEndpoints
 
         if (!File.Exists(photo.FilePath))
             return Results.NotFound();
+
+        // On-the-fly resize for photos when ?w= is specified
+        if (photo.MediaType == MediaType.Photo
+            && int.TryParse(context.Request.Query["w"], out var width)
+            && width > 0 && width <= 2000)
+        {
+            using var image = await Image.LoadAsync(photo.FilePath);
+            image.Mutate(x => x.Resize(new ResizeOptions
+            {
+                Mode = ResizeMode.Max,
+                Size = new Size(width, 0)
+            }));
+
+            using var ms = new MemoryStream();
+            await image.SaveAsJpegAsync(ms, new JpegEncoder { Quality = 80 });
+            return Results.Bytes(ms.ToArray(), "image/jpeg");
+        }
 
         if (!ContentTypeProvider.TryGetContentType(photo.FilePath, out var contentType))
             contentType = "application/octet-stream";
@@ -82,29 +103,58 @@ public static class PhotoEndpoints
         {
             foreach (var (year, photos) in photosByYear.OrderByDescending(kv => kv.Key))
             {
+                var photoCount = photos.Count(p => p.MediaType == MediaType.Photo);
+                var videoCount = photos.Count(p => p.MediaType == MediaType.Video);
+                var countParts = new List<string>();
+                if (photoCount > 0) countParts.Add($"{photoCount} photo{(photoCount != 1 ? "s" : "")}");
+                if (videoCount > 0) countParts.Add($"{videoCount} video{(videoCount != 1 ? "s" : "")}");
+
                 content.Append($"""
                     <section class="year-section">
-                        <h2 class="year-header">{year}<span>{photos.Count} photo{(photos.Count != 1 ? "s" : "")}</span></h2>
+                        <h2 class="year-header">{year}<span>{string.Join(", ", countParts)}</span></h2>
                         <div class="photo-grid">
                 """);
 
                 foreach (var photo in photos)
                 {
-                    content.Append($"""
-                            <div class="photo-card">
-                                <a href="#lightbox-{photo.Id}">
-                                    <img src="/photo/{photo.Id}" alt="{Escape(photo.FileName)}" loading="lazy" />
-                                </a>
-                                <div class="photo-info">{Escape(photo.FileName)}</div>
-                            </div>
-                    """);
+                    if (photo.MediaType == MediaType.Video)
+                    {
+                        content.Append($"""
+                                <div class="photo-card video-card">
+                                    <a href="#lightbox-{photo.Id}">
+                                        <div class="video-placeholder">
+                                            <svg class="play-icon" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
+                                            <span class="video-filename">{Escape(photo.FileName)}</span>
+                                        </div>
+                                    </a>
+                                </div>
+                        """);
 
-                    lightboxes.Append($"""
-                        <div id="lightbox-{photo.Id}" class="lightbox">
-                            <a href="#" class="lightbox-close">&times;</a>
-                            <img src="/photo/{photo.Id}" alt="{Escape(photo.FileName)}" />
-                        </div>
-                    """);
+                        lightboxes.Append($"""
+                            <div id="lightbox-{photo.Id}" class="lightbox">
+                                <a href="#" class="lightbox-close">&times;</a>
+                                <video src="/photo/{photo.Id}" controls preload="metadata"></video>
+                            </div>
+                        """);
+                    }
+                    else
+                    {
+                        content.Append($"""
+                                <div class="photo-card">
+                                    <a href="#lightbox-{photo.Id}">
+                                        <img src="/photo/{photo.Id}?w=300" alt="{Escape(photo.FileName)}" loading="lazy" />
+                                    </a>
+                                    <div class="photo-info">{Escape(photo.FileName)}</div>
+                                </div>
+                        """);
+
+                        lightboxes.Append($"""
+                            <div id="lightbox-{photo.Id}" class="lightbox">
+                                <a href="#" class="lightbox-close">&times;</a>
+                                <img src="/photo/{photo.Id}" alt="{Escape(photo.FileName)}" />
+                            </div>
+                        """);
+                    }
                 }
 
                 content.Append("""

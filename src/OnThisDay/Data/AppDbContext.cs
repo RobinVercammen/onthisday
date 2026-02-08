@@ -26,6 +26,8 @@ public class AppDbContext : DbContext
             entity.Property(e => e.FileName).IsRequired();
             entity.Property(e => e.DateSource)
                 .HasConversion<string>();
+            entity.Property(e => e.MediaType)
+                .HasConversion<string>();
         });
     }
 }

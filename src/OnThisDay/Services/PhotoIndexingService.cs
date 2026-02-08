@@ -8,7 +8,8 @@ public class PhotoIndexingService : BackgroundService
 {
     private static readonly HashSet<string> SupportedExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
-        ".jpg", ".jpeg", ".png", ".heic", ".heif", ".tiff", ".tif"
+        ".jpg", ".jpeg", ".png", ".heic", ".heif", ".tiff", ".tif",
+        ".mp4", ".mov", ".avi", ".mkv", ".webm"
     };
 
     private readonly IServiceScopeFactory _scopeFactory;
@@ -113,6 +114,7 @@ public class PhotoIndexingService : BackgroundService
                         existing.FileSize = fileInfo.Length;
                         existing.FileLastModified = fileInfo.LastWriteTimeUtc;
                         existing.IndexedAt = DateTime.UtcNow;
+                        existing.MediaType = ExifService.GetMediaType(filePath);
                         updatedCount++;
                     }
                     else
@@ -130,7 +132,8 @@ public class PhotoIndexingService : BackgroundService
                             DateSource = source,
                             FileSize = fileInfo.Length,
                             FileLastModified = fileInfo.LastWriteTimeUtc,
-                            IndexedAt = DateTime.UtcNow
+                            IndexedAt = DateTime.UtcNow,
+                            MediaType = ExifService.GetMediaType(filePath)
                         });
                         newCount++;
                     }

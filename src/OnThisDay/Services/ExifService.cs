@@ -15,6 +15,11 @@ public class ExifService
         "yyyy/MM/dd HH:mm:ss",
     ];
 
+    private static readonly HashSet<string> VideoExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".mp4", ".mov", ".avi", ".mkv", ".webm"
+    };
+
     private readonly ILogger<ExifService> _logger;
 
     public ExifService(ILogger<ExifService> logger)
@@ -22,8 +27,22 @@ public class ExifService
         _logger = logger;
     }
 
+    public static MediaType GetMediaType(string filePath)
+    {
+        var ext = Path.GetExtension(filePath);
+        return VideoExtensions.Contains(ext) ? MediaType.Video : MediaType.Photo;
+    }
+
     public (DateTime dateTaken, DateSource source) ExtractDate(string filePath)
     {
+        // Videos don't have EXIF data — go straight to file system date
+        if (GetMediaType(filePath) == MediaType.Video)
+        {
+            var videoLastWrite = File.GetLastWriteTime(filePath);
+            _logger.LogDebug("Using file LastWriteTime for video {File}: {Date}", filePath, videoLastWrite);
+            return (videoLastWrite, DateSource.FileSystem);
+        }
+
         try
         {
             var directories = ImageMetadataReader.ReadMetadata(filePath);

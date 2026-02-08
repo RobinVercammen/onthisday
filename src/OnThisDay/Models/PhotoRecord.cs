@@ -7,6 +7,12 @@ public enum DateSource
     FileSystem
 }
 
+public enum MediaType
+{
+    Photo,
+    Video
+}
+
 public class PhotoRecord
 {
     public int Id { get; set; }
@@ -20,4 +26,5 @@ public class PhotoRecord
     public long FileSize { get; set; }
     public DateTime FileLastModified { get; set; }
     public DateTime IndexedAt { get; set; }
+    public MediaType MediaType { get; set; }
 }
