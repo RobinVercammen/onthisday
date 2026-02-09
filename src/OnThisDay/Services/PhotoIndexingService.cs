@@ -71,6 +71,8 @@ public class PhotoIndexingService : BackgroundService
 
         // Load all existing records into a dictionary for O(1) lookup
         var existingRecords = await db.Photos
+            .GroupBy(p => p.FilePath)
+            .Select(g => g.First())
             .ToDictionaryAsync(p => p.FilePath, p => p, StringComparer.OrdinalIgnoreCase, ct);
 
         // Cache directory listings for sibling detection: dir -> set of filenames
@@ -102,8 +104,8 @@ public class PhotoIndexingService : BackgroundService
             return movName != null ? Path.Combine(dir, movName) : null;
         }
 
-        // Collect all files to index, filtering out Live Photo companions
-        var filesToIndex = new List<string>();
+        // Collect all files to index, deduplicating across overlapping directories
+        var allFilesOnDisk = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var dir in _photoDirectories)
         {
             if (!Directory.Exists(dir))
@@ -125,11 +127,11 @@ public class PhotoIndexingService : BackgroundService
                 if (ext.Equals(".mov", StringComparison.OrdinalIgnoreCase) && HasPhotoSibling(filePath))
                     continue;
 
-                filesToIndex.Add(filePath);
+                allFilesOnDisk.Add(filePath);
             }
         }
 
-        var allFilesOnDisk = new HashSet<string>(filesToIndex, StringComparer.OrdinalIgnoreCase);
+        var filesToIndex = allFilesOnDisk.ToList();
         _logger.LogInformation("Found {Count} files to index", filesToIndex.Count);
 
         // Extract EXIF data in parallel using a producer-consumer pattern
