@@ -133,8 +133,8 @@ public class PhotoIndexingService : BackgroundService
         _logger.LogInformation("Found {Count} files to index", filesToIndex.Count);
 
         // Extract EXIF data in parallel using a producer-consumer pattern
-        var channel = Channel.CreateBounded<(string filePath, FileInfo fileInfo, DateTime dateTaken, DateSource source, MediaType mediaType, string? movSibling)>(
-            new BoundedChannelOptions(256) { SingleReader = true });
+        var channel = Channel.CreateUnbounded<(string filePath, FileInfo fileInfo, DateTime dateTaken, DateSource source, MediaType mediaType, string? movSibling)>(
+            new UnboundedChannelOptions { SingleReader = true });
 
         var producerTask = Task.Run(() =>
         {
