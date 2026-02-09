@@ -325,6 +325,8 @@
         // === Level 2: Media recycling within visible sections ===
         // Populate/depopulate img/video elements on individual cards
 
+        const posterCache = {};
+
         function populateCard(card) {
             if (card.querySelector('a')) return;
             const id = card.dataset.id;
@@ -336,11 +338,26 @@
             a.className = 'lightbox-trigger';
 
             if (type === 'video') {
-                const video = document.createElement('video');
-                video.src = '/photo/' + id + '#t=0.5';
-                video.preload = 'metadata';
-                video.muted = true;
-                a.appendChild(video);
+                if (posterCache[id]) {
+                    const img = document.createElement('img');
+                    img.src = posterCache[id];
+                    a.appendChild(img);
+                } else {
+                    const video = document.createElement('video');
+                    video.src = '/photo/' + id + '#t=0.5';
+                    video.preload = 'metadata';
+                    video.muted = true;
+                    video.addEventListener('loadeddata', () => {
+                        try {
+                            const c = document.createElement('canvas');
+                            c.width = video.videoWidth;
+                            c.height = video.videoHeight;
+                            c.getContext('2d').drawImage(video, 0, 0);
+                            posterCache[id] = c.toDataURL('image/jpeg', 0.7);
+                        } catch(e) {}
+                    });
+                    a.appendChild(video);
+                }
                 const overlay = document.createElement('div');
                 overlay.className = 'video-overlay';
                 overlay.innerHTML = PLAY_SVG;
