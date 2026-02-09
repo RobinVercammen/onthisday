@@ -187,7 +187,6 @@ public static class PhotoEndpoints
             _appleTouchIconCache = image.ToByteArray();
         }
 
-        context.Response.Headers.CacheControl = "public, max-age=31536000, immutable";
         return Results.File(_appleTouchIconCache, "image/png");
     }
 
