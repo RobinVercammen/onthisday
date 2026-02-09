@@ -128,7 +128,7 @@ public class PhotoIndexingService : BackgroundService
                         existing.FileLastModified = fileInfo.LastWriteTimeUtc;
                         existing.IndexedAt = DateTime.UtcNow;
                         existing.MediaType = ExifService.GetMediaType(filePath);
-                        existing.LivePhotoMovPath = FindMovSibling(filePath);
+                        existing.LivePhotoMovPath = existing.MediaType == MediaType.Photo ? FindMovSibling(filePath) : null;
                         updatedCount++;
                     }
                     else
@@ -148,7 +148,7 @@ public class PhotoIndexingService : BackgroundService
                             FileLastModified = fileInfo.LastWriteTimeUtc,
                             IndexedAt = DateTime.UtcNow,
                             MediaType = ExifService.GetMediaType(filePath),
-                            LivePhotoMovPath = FindMovSibling(filePath)
+                            LivePhotoMovPath = ExifService.GetMediaType(filePath) == MediaType.Photo ? FindMovSibling(filePath) : null
                         });
                         newCount++;
                     }
