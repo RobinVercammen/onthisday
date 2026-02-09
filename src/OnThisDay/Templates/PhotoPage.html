@@ -326,6 +326,16 @@
         // Populate/depopulate img/video elements on individual cards
 
         const posterCache = {};
+        const THUMB_SIZE = 300;
+
+        function toThumbDataUrl(source, srcW, srcH) {
+            const scale = Math.min(THUMB_SIZE / srcW, THUMB_SIZE / srcH, 1);
+            const c = document.createElement('canvas');
+            c.width = Math.round(srcW * scale);
+            c.height = Math.round(srcH * scale);
+            c.getContext('2d').drawImage(source, 0, 0, c.width, c.height);
+            return c.toDataURL('image/jpeg', 0.6);
+        }
 
         function populateCard(card) {
             if (card.querySelector('a')) return;
@@ -348,13 +358,7 @@
                     video.preload = 'metadata';
                     video.muted = true;
                     video.addEventListener('loadeddata', () => {
-                        try {
-                            const c = document.createElement('canvas');
-                            c.width = video.videoWidth;
-                            c.height = video.videoHeight;
-                            c.getContext('2d').drawImage(video, 0, 0);
-                            posterCache[id] = c.toDataURL('image/jpeg', 0.7);
-                        } catch(e) {}
+                        try { posterCache[id] = toThumbDataUrl(video, video.videoWidth, video.videoHeight); } catch(e) {}
                     });
                     a.appendChild(video);
                 }
@@ -364,7 +368,14 @@
                 a.appendChild(overlay);
             } else {
                 const img = document.createElement('img');
-                img.src = '/photo/' + id;
+                if (posterCache[id]) {
+                    img.src = posterCache[id];
+                } else {
+                    img.src = '/photo/' + id;
+                    img.addEventListener('load', () => {
+                        try { posterCache[id] = toThumbDataUrl(img, img.naturalWidth, img.naturalHeight); } catch(e) {}
+                    });
+                }
                 a.appendChild(img);
             }
 
