@@ -158,16 +158,22 @@ public static class PhotoEndpoints
 
     private const string IconSvg = """
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180">
-            <rect width="180" height="180" rx="28" fill="#0a0a0a"/>
-            <rect x="30" y="44" width="120" height="106" rx="12" fill="none" stroke="#e0e0e0" stroke-width="6"/>
-            <rect x="30" y="44" width="120" height="30" rx="12" fill="#e0e0e0"/>
-            <circle cx="60" cy="36" r="8" fill="#e0e0e0"/>
-            <circle cx="120" cy="36" r="8" fill="#e0e0e0"/>
-            <line x1="60" y1="28" x2="60" y2="44" stroke="#e0e0e0" stroke-width="6" stroke-linecap="round"/>
-            <line x1="120" y1="28" x2="120" y2="44" stroke="#e0e0e0" stroke-width="6" stroke-linecap="round"/>
-            <circle cx="100" cy="115" r="22" fill="none" stroke="#8ab4f8" stroke-width="5"/>
-            <circle cx="100" cy="115" r="8" fill="#8ab4f8"/>
-            <rect x="82" y="97" width="36" height="6" rx="3" fill="#8ab4f8" transform="rotate(-45 100 100)"/>
+            <defs>
+                <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0%" stop-color="#4A90D9"/>
+                    <stop offset="100%" stop-color="#8B5CF6"/>
+                </linearGradient>
+            </defs>
+            <rect width="180" height="180" rx="28" fill="url(#bg)"/>
+            <rect x="30" y="44" width="120" height="106" rx="12" fill="none" stroke="#fff" stroke-width="6"/>
+            <rect x="30" y="44" width="120" height="30" rx="12" fill="#fff"/>
+            <circle cx="60" cy="36" r="8" fill="#fff"/>
+            <circle cx="120" cy="36" r="8" fill="#fff"/>
+            <line x1="60" y1="28" x2="60" y2="44" stroke="#fff" stroke-width="6" stroke-linecap="round"/>
+            <line x1="120" y1="28" x2="120" y2="44" stroke="#fff" stroke-width="6" stroke-linecap="round"/>
+            <circle cx="100" cy="115" r="22" fill="none" stroke="#fff" stroke-width="5"/>
+            <circle cx="100" cy="115" r="8" fill="#fff"/>
+            <rect x="82" y="97" width="36" height="6" rx="3" fill="#fff" transform="rotate(-45 100 100)"/>
         </svg>
         """;
 
