@@ -92,11 +92,7 @@ public class PhotoIndexingService : BackgroundService
                 var ext = Path.GetExtension(filePath);
                 if (ext.Equals(".mov", StringComparison.OrdinalIgnoreCase))
                 {
-                    var stem = Path.GetFileNameWithoutExtension(filePath);
-                    var fileDir = Path.GetDirectoryName(filePath)!;
-                    bool isLiveCompanion = ExifService.PhotoExtensions
-                        .Any(pe => File.Exists(Path.Combine(fileDir, stem + pe)));
-                    if (isLiveCompanion)
+                    if (HasPhotoSibling(filePath))
                         continue;
                 }
 
@@ -193,15 +189,19 @@ public class PhotoIndexingService : BackgroundService
             newCount, updatedCount, prunedCount, await db.Photos.CountAsync(ct));
     }
 
+    private static bool HasPhotoSibling(string movPath)
+    {
+        var dir = Path.GetDirectoryName(movPath)!;
+        var stem = Path.GetFileNameWithoutExtension(movPath);
+        return Directory.EnumerateFiles(dir, stem + ".*")
+            .Any(f => ExifService.PhotoExtensions.Contains(Path.GetExtension(f)));
+    }
+
     private static string? FindMovSibling(string photoPath)
     {
         var dir = Path.GetDirectoryName(photoPath)!;
         var stem = Path.GetFileNameWithoutExtension(photoPath);
-        foreach (var movExt in new[] { ".mov", ".MOV" })
-        {
-            var candidate = Path.Combine(dir, stem + movExt);
-            if (File.Exists(candidate)) return candidate;
-        }
-        return null;
+        return Directory.EnumerateFiles(dir, stem + ".*")
+            .FirstOrDefault(f => Path.GetExtension(f).Equals(".mov", StringComparison.OrdinalIgnoreCase));
     }
 }
