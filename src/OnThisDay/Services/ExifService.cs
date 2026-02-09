@@ -15,6 +15,11 @@ public class ExifService
         "yyyy/MM/dd HH:mm:ss",
     ];
 
+    public static readonly HashSet<string> PhotoExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".jpg", ".jpeg", ".png", ".heic", ".heif", ".tiff", ".tif"
+    };
+
     private static readonly HashSet<string> VideoExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".mp4", ".mov", ".avi", ".mkv", ".webm"

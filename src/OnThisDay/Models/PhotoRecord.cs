@@ -27,4 +27,5 @@ public class PhotoRecord
     public DateTime FileLastModified { get; set; }
     public DateTime IndexedAt { get; set; }
     public MediaType MediaType { get; set; }
+    public string? LivePhotoMovPath { get; set; }
 }

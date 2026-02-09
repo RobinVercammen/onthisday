@@ -18,6 +18,7 @@ public static class PhotoEndpoints
     {
         app.MapGet("/", HandleHomePage);
         app.MapGet("/photo/{id:int}", HandlePhotoServe);
+        app.MapGet("/photo/{id:int}/live", HandleLivePhotoServe);
         app.MapGet("/apple-touch-icon.png", HandleAppleTouchIcon);
     }
 
@@ -68,6 +69,19 @@ public static class PhotoEndpoints
             enableRangeProcessing: true);
     }
 
+    private static async Task<IResult> HandleLivePhotoServe(
+        int id,
+        HttpContext context,
+        PhotoQueryService queryService)
+    {
+        var photo = await queryService.GetPhotoById(id);
+        if (photo?.LivePhotoMovPath == null || !File.Exists(photo.LivePhotoMovPath))
+            return Results.NotFound();
+
+        context.Response.Headers.CacheControl = "public, max-age=31536000, immutable";
+        return Results.File(photo.LivePhotoMovPath, "video/quicktime", enableRangeProcessing: true);
+    }
+
     private static string RenderPage(int month, int day, Dictionary<int, List<PhotoRecord>> photosByYear)
     {
         var template = GetTemplate();
@@ -107,7 +121,8 @@ public static class PhotoEndpoints
                     if (i > 0) content.Append(',');
                     var p = photos[i];
                     var type = p.MediaType == MediaType.Video ? "video" : "photo";
-                    content.Append($"{{\"id\":{p.Id},\"type\":\"{type}\",\"name\":\"{EscapeJson(p.FileName)}\"}}");
+                    var live = p.LivePhotoMovPath != null ? ",\"live\":true" : "";
+                    content.Append($"{{\"id\":{p.Id},\"type\":\"{type}\",\"name\":\"{EscapeJson(p.FileName)}\"{live}}}");
                 }
                 content.Append("]}");
             }

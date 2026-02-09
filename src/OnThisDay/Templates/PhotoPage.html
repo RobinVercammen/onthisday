@@ -147,6 +147,21 @@
 
         .video-card:hover .play-icon { transform: scale(1.15); }
 
+        .live-badge {
+            position: absolute;
+            top: 0.4rem;
+            left: 0.4rem;
+            background: rgba(255,255,255,0.2);
+            backdrop-filter: blur(8px);
+            color: #fff;
+            font-size: 0.6rem;
+            font-weight: 600;
+            padding: 0.15rem 0.4rem;
+            border-radius: 4px;
+            letter-spacing: 0.05em;
+            z-index: 1;
+        }
+
         .empty-state {
             text-align: center;
             padding: 4rem 1rem;
@@ -263,10 +278,17 @@
                 card.className = item.type === 'video' ? 'photo-card video-card' : 'photo-card';
                 card.dataset.id = item.id;
                 card.dataset.type = item.type;
+                if (item.live) card.dataset.live = '1';
                 const info = document.createElement('div');
                 info.className = 'photo-info';
                 info.textContent = item.name;
                 card.appendChild(info);
+                if (item.live) {
+                    const badge = document.createElement('span');
+                    badge.className = 'live-badge';
+                    badge.textContent = 'LIVE';
+                    card.appendChild(badge);
+                }
                 frag.appendChild(card);
             }
             grid.appendChild(frag);
@@ -378,14 +400,25 @@
         const lightbox = document.getElementById('lightbox');
         const lightboxContent = document.getElementById('lightbox-content');
 
-        function openLightbox(id, type) {
+        function openLightbox(id, type, live) {
             lightboxContent.innerHTML = '';
-            if (type === 'video') {
+            if (live) {
+                const video = document.createElement('video');
+                video.src = '/photo/' + id + '/live';
+                video.autoplay = true;
+                video.muted = true;
+                video.playsInline = true;
+                video.addEventListener('ended', () => {
+                    const img = document.createElement('img');
+                    img.src = '/photo/' + id;
+                    lightboxContent.replaceChildren(img);
+                });
+                lightboxContent.appendChild(video);
+            } else if (type === 'video') {
                 const video = document.createElement('video');
                 video.src = '/photo/' + id;
                 video.controls = true;
                 video.preload = 'metadata';
-                video.autoplay = true;
                 lightboxContent.appendChild(video);
             } else {
                 const img = document.createElement('img');
@@ -406,7 +439,8 @@
             const trigger = e.target.closest('.lightbox-trigger');
             if (trigger) {
                 e.preventDefault();
-                openLightbox(trigger.dataset.id, trigger.dataset.type);
+                const card = trigger.closest('.photo-card');
+                openLightbox(trigger.dataset.id, trigger.dataset.type, card && card.dataset.live);
             }
         });
 

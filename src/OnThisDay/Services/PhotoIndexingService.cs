@@ -87,6 +87,19 @@ public class PhotoIndexingService : BackgroundService
             foreach (var filePath in files)
             {
                 ct.ThrowIfCancellationRequested();
+
+                // Skip Live Photo companion .mov files
+                var ext = Path.GetExtension(filePath);
+                if (ext.Equals(".mov", StringComparison.OrdinalIgnoreCase))
+                {
+                    var stem = Path.GetFileNameWithoutExtension(filePath);
+                    var fileDir = Path.GetDirectoryName(filePath)!;
+                    bool isLiveCompanion = ExifService.PhotoExtensions
+                        .Any(pe => File.Exists(Path.Combine(fileDir, stem + pe)));
+                    if (isLiveCompanion)
+                        continue;
+                }
+
                 allFilesOnDisk.Add(filePath);
 
                 try
@@ -115,6 +128,7 @@ public class PhotoIndexingService : BackgroundService
                         existing.FileLastModified = fileInfo.LastWriteTimeUtc;
                         existing.IndexedAt = DateTime.UtcNow;
                         existing.MediaType = ExifService.GetMediaType(filePath);
+                        existing.LivePhotoMovPath = FindMovSibling(filePath);
                         updatedCount++;
                     }
                     else
@@ -133,7 +147,8 @@ public class PhotoIndexingService : BackgroundService
                             FileSize = fileInfo.Length,
                             FileLastModified = fileInfo.LastWriteTimeUtc,
                             IndexedAt = DateTime.UtcNow,
-                            MediaType = ExifService.GetMediaType(filePath)
+                            MediaType = ExifService.GetMediaType(filePath),
+                            LivePhotoMovPath = FindMovSibling(filePath)
                         });
                         newCount++;
                     }
@@ -176,5 +191,17 @@ public class PhotoIndexingService : BackgroundService
         _logger.LogInformation(
             "Indexing complete: {New} new, {Updated} updated, {Pruned} pruned. Total: {Total}",
             newCount, updatedCount, prunedCount, await db.Photos.CountAsync(ct));
+    }
+
+    private static string? FindMovSibling(string photoPath)
+    {
+        var dir = Path.GetDirectoryName(photoPath)!;
+        var stem = Path.GetFileNameWithoutExtension(photoPath);
+        foreach (var movExt in new[] { ".mov", ".MOV" })
+        {
+            var candidate = Path.Combine(dir, stem + movExt);
+            if (File.Exists(candidate)) return candidate;
+        }
+        return null;
     }
 }
