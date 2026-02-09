@@ -3,6 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="On This Day">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' rx='28' fill='%230a0a0a'/%3E%3Crect x='30' y='44' width='120' height='106' rx='12' fill='none' stroke='%23e0e0e0' stroke-width='6'/%3E%3Crect x='30' y='44' width='120' height='30' rx='12' fill='%23e0e0e0'/%3E%3Ccircle cx='60' cy='36' r='8' fill='%23e0e0e0'/%3E%3Ccircle cx='120' cy='36' r='8' fill='%23e0e0e0'/%3E%3Cline x1='60' y1='28' x2='60' y2='44' stroke='%23e0e0e0' stroke-width='6' stroke-linecap='round'/%3E%3Cline x1='120' y1='28' x2='120' y2='44' stroke='%23e0e0e0' stroke-width='6' stroke-linecap='round'/%3E%3Ccircle cx='100' cy='115' r='22' fill='none' stroke='%238ab4f8' stroke-width='5'/%3E%3Ccircle cx='100' cy='115' r='8' fill='%238ab4f8'/%3E%3Crect x='82' y='97' width='36' height='6' rx='3' fill='%238ab4f8' transform='rotate(-45 100 100)'/%3E%3C/svg%3E">
     <title>On This Day — {{MONTH_NAME}} {{DAY}}</title>
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -233,9 +238,7 @@
         function getGridMetrics(grid) {
             const style = getComputedStyle(grid);
             const gap = parseFloat(style.gap) || parseFloat(style.rowGap) || 0;
-            const colWidth = 250; // matches minmax(250px, 1fr)
-            const gridWidth = grid.clientWidth;
-            const cols = Math.max(1, Math.floor((gridWidth + gap) / (colWidth + gap)));
+            const cols = style.gridTemplateColumns.split(' ').length || 1;
             return { cols, gap };
         }
 
@@ -266,11 +269,13 @@
                 card.appendChild(info);
                 frag.appendChild(card);
             }
-            grid.style.minHeight = '';
             grid.appendChild(frag);
 
             // Start observing individual cards for media recycling
             grid.querySelectorAll('.photo-card').forEach(c => mediaRecycler.observe(c));
+
+            // Clear estimated minHeight after layout settles to avoid scroll jumps
+            requestAnimationFrame(() => { grid.style.minHeight = ''; });
         }
 
         function depopulateSection(section) {
@@ -293,7 +298,7 @@
                     depopulateSection(e.target);
                 }
             }
-        }, { rootMargin: '800px' });
+        }, { rootMargin: '200%' });
 
         // === Level 2: Media recycling within visible sections ===
         // Populate/depopulate img/video elements on individual cards
@@ -340,7 +345,7 @@
                     depopulateCard(e.target);
                 }
             }
-        }, { rootMargin: '500px' });
+        }, { rootMargin: '100%' });
 
         // === Initialize: set estimated heights and start observing sections ===
         document.querySelectorAll('.year-section').forEach(section => {
@@ -353,16 +358,20 @@
             sectionObserver.observe(section);
         });
 
-        // Recalculate heights on resize
+        // Recalculate heights on resize (debounced for device rotation)
+        let resizeTimer;
         window.addEventListener('resize', () => {
-            document.querySelectorAll('.year-section').forEach(section => {
-                const grid = section.querySelector('.photo-grid');
-                if (grid.children.length === 0) {
-                    const year = parseInt(section.dataset.year);
-                    const items = dataByYear[year];
-                    if (items) grid.style.minHeight = estimateGridHeight(grid, items.length) + 'px';
-                }
-            });
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(() => {
+                document.querySelectorAll('.year-section').forEach(section => {
+                    const grid = section.querySelector('.photo-grid');
+                    if (grid.children.length === 0) {
+                        const year = parseInt(section.dataset.year);
+                        const items = dataByYear[year];
+                        if (items) grid.style.minHeight = estimateGridHeight(grid, items.length) + 'px';
+                    }
+                });
+            }, 150);
         });
 
         // === Single reusable lightbox ===

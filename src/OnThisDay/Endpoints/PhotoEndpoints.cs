@@ -1,6 +1,8 @@
 using System.Globalization;
 using System.Text;
+using ImageMagick;
 using Microsoft.AspNetCore.StaticFiles;
+using Microsoft.Net.Http.Headers;
 using OnThisDay.Models;
 using OnThisDay.Services;
 
@@ -9,12 +11,14 @@ namespace OnThisDay.Endpoints;
 public static class PhotoEndpoints
 {
     private static string? _templateCache;
+    private static byte[]? _appleTouchIconCache;
     private static readonly FileExtensionContentTypeProvider ContentTypeProvider = new();
 
     public static void MapPhotoEndpoints(this WebApplication app)
     {
         app.MapGet("/", HandleHomePage);
         app.MapGet("/photo/{id:int}", HandlePhotoServe);
+        app.MapGet("/apple-touch-icon.png", HandleAppleTouchIcon);
     }
 
     private static async Task<IResult> HandleHomePage(
@@ -37,6 +41,7 @@ public static class PhotoEndpoints
 
     private static async Task<IResult> HandlePhotoServe(
         int id,
+        HttpContext context,
         PhotoQueryService queryService)
     {
         var photo = await queryService.GetPhotoById(id);
@@ -49,8 +54,18 @@ public static class PhotoEndpoints
         if (!ContentTypeProvider.TryGetContentType(photo.FilePath, out var contentType))
             contentType = "application/octet-stream";
 
-        var stream = File.OpenRead(photo.FilePath);
-        return Results.File(stream, contentType, enableRangeProcessing: true);
+        var fileInfo = new FileInfo(photo.FilePath);
+        var lastModified = new DateTimeOffset(fileInfo.LastWriteTimeUtc, TimeSpan.Zero);
+        var eTag = new EntityTagHeaderValue($"\"{id}-{fileInfo.Length}\"");
+
+        context.Response.Headers.CacheControl = "public, max-age=31536000, immutable";
+
+        return Results.File(
+            photo.FilePath,
+            contentType,
+            lastModified: lastModified,
+            entityTag: eTag,
+            enableRangeProcessing: true);
     }
 
     private static string RenderPage(int month, int day, Dictionary<int, List<PhotoRecord>> photosByYear)
@@ -124,6 +139,35 @@ public static class PhotoEndpoints
             .Replace("{{NEXT_LINK}}", $"/?month={nextDate.Month}&day={nextDate.Day}")
             .Replace("{{NEXT_LABEL}}", nextLabel)
             .Replace("{{CONTENT}}", content.ToString());
+    }
+
+    private const string IconSvg = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180">
+            <rect width="180" height="180" rx="28" fill="#0a0a0a"/>
+            <rect x="30" y="44" width="120" height="106" rx="12" fill="none" stroke="#e0e0e0" stroke-width="6"/>
+            <rect x="30" y="44" width="120" height="30" rx="12" fill="#e0e0e0"/>
+            <circle cx="60" cy="36" r="8" fill="#e0e0e0"/>
+            <circle cx="120" cy="36" r="8" fill="#e0e0e0"/>
+            <line x1="60" y1="28" x2="60" y2="44" stroke="#e0e0e0" stroke-width="6" stroke-linecap="round"/>
+            <line x1="120" y1="28" x2="120" y2="44" stroke="#e0e0e0" stroke-width="6" stroke-linecap="round"/>
+            <circle cx="100" cy="115" r="22" fill="none" stroke="#8ab4f8" stroke-width="5"/>
+            <circle cx="100" cy="115" r="8" fill="#8ab4f8"/>
+            <rect x="82" y="97" width="36" height="6" rx="3" fill="#8ab4f8" transform="rotate(-45 100 100)"/>
+        </svg>
+        """;
+
+    private static IResult HandleAppleTouchIcon(HttpContext context)
+    {
+        if (_appleTouchIconCache == null)
+        {
+            using var image = new MagickImage(Encoding.UTF8.GetBytes(IconSvg), MagickFormat.Svg);
+            image.Resize(180, 180);
+            image.Format = MagickFormat.Png;
+            _appleTouchIconCache = image.ToByteArray();
+        }
+
+        context.Response.Headers.CacheControl = "public, max-age=31536000, immutable";
+        return Results.File(_appleTouchIconCache, "image/png");
     }
 
     private static string GetTemplate()
