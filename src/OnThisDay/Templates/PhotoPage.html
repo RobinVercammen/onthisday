@@ -220,11 +220,86 @@
     </div>
     <footer>On This Day &mdash; Photo Memories</footer>
     <script>
-        // === Virtual recycling: populate/depopulate cards as they enter/leave viewport ===
         const PLAY_SVG = '<svg class="play-icon" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>';
+        const photoData = window.__photoData || [];
+
+        // Build lookup: year -> items
+        const dataByYear = {};
+        for (const group of photoData) dataByYear[group.year] = group.items;
+
+        // === Level 1: Section-level virtualization ===
+        // Create/destroy card divs when year sections enter/leave viewport
+
+        function getGridMetrics(grid) {
+            const style = getComputedStyle(grid);
+            const gap = parseFloat(style.gap) || parseFloat(style.rowGap) || 0;
+            const colWidth = 250; // matches minmax(250px, 1fr)
+            const gridWidth = grid.clientWidth;
+            const cols = Math.max(1, Math.floor((gridWidth + gap) / (colWidth + gap)));
+            return { cols, gap };
+        }
+
+        function estimateGridHeight(grid, itemCount) {
+            const { cols, gap } = getGridMetrics(grid);
+            const rows = Math.ceil(itemCount / cols);
+            // Each card is square with aspect-ratio:1, width = (gridWidth - (cols-1)*gap) / cols
+            const cardSize = (grid.clientWidth - (cols - 1) * gap) / cols;
+            return rows * cardSize + Math.max(0, rows - 1) * gap;
+        }
+
+        function populateSection(section) {
+            const grid = section.querySelector('.photo-grid');
+            if (grid.children.length > 0) return; // already populated
+            const year = parseInt(section.dataset.year);
+            const items = dataByYear[year];
+            if (!items) return;
+
+            const frag = document.createDocumentFragment();
+            for (const item of items) {
+                const card = document.createElement('div');
+                card.className = item.type === 'video' ? 'photo-card video-card' : 'photo-card';
+                card.dataset.id = item.id;
+                card.dataset.type = item.type;
+                const info = document.createElement('div');
+                info.className = 'photo-info';
+                info.textContent = item.name;
+                card.appendChild(info);
+                frag.appendChild(card);
+            }
+            grid.style.minHeight = '';
+            grid.appendChild(frag);
+
+            // Start observing individual cards for media recycling
+            grid.querySelectorAll('.photo-card').forEach(c => mediaRecycler.observe(c));
+        }
+
+        function depopulateSection(section) {
+            const grid = section.querySelector('.photo-grid');
+            if (grid.children.length === 0) return; // already empty
+
+            // Stop observing cards
+            grid.querySelectorAll('.photo-card').forEach(c => mediaRecycler.unobserve(c));
+
+            // Preserve height to prevent scroll jumps
+            grid.style.minHeight = grid.offsetHeight + 'px';
+            grid.innerHTML = '';
+        }
+
+        const sectionObserver = new IntersectionObserver((entries) => {
+            for (const e of entries) {
+                if (e.isIntersecting) {
+                    populateSection(e.target);
+                } else {
+                    depopulateSection(e.target);
+                }
+            }
+        }, { rootMargin: '800px' });
+
+        // === Level 2: Media recycling within visible sections ===
+        // Populate/depopulate img/video elements on individual cards
 
         function populateCard(card) {
-            if (card.querySelector('a')) return; // already populated
+            if (card.querySelector('a')) return;
             const id = card.dataset.id;
             const type = card.dataset.type;
             const a = document.createElement('a');
@@ -257,7 +332,7 @@
             if (a) a.remove();
         }
 
-        const recycler = new IntersectionObserver((entries) => {
+        const mediaRecycler = new IntersectionObserver((entries) => {
             for (const e of entries) {
                 if (e.isIntersecting) {
                     populateCard(e.target);
@@ -267,7 +342,28 @@
             }
         }, { rootMargin: '500px' });
 
-        document.querySelectorAll('.photo-card').forEach(c => recycler.observe(c));
+        // === Initialize: set estimated heights and start observing sections ===
+        document.querySelectorAll('.year-section').forEach(section => {
+            const year = parseInt(section.dataset.year);
+            const items = dataByYear[year];
+            if (items) {
+                const grid = section.querySelector('.photo-grid');
+                grid.style.minHeight = estimateGridHeight(grid, items.length) + 'px';
+            }
+            sectionObserver.observe(section);
+        });
+
+        // Recalculate heights on resize
+        window.addEventListener('resize', () => {
+            document.querySelectorAll('.year-section').forEach(section => {
+                const grid = section.querySelector('.photo-grid');
+                if (grid.children.length === 0) {
+                    const year = parseInt(section.dataset.year);
+                    const items = dataByYear[year];
+                    if (items) grid.style.minHeight = estimateGridHeight(grid, items.length) + 'px';
+                }
+            });
+        });
 
         // === Single reusable lightbox ===
         const lightbox = document.getElementById('lightbox');

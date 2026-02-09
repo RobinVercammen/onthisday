@@ -79,6 +79,26 @@ public static class PhotoEndpoints
         }
         else
         {
+            // Embed photo data as JSON for client-side virtual scrolling
+            content.Append("<script>window.__photoData = [");
+            var first = true;
+            foreach (var (year, photos) in photosByYear.OrderByDescending(kv => kv.Key))
+            {
+                if (!first) content.Append(',');
+                first = false;
+                content.Append($"{{\"year\":{year},\"items\":[");
+                for (var i = 0; i < photos.Count; i++)
+                {
+                    if (i > 0) content.Append(',');
+                    var p = photos[i];
+                    var type = p.MediaType == MediaType.Video ? "video" : "photo";
+                    content.Append($"{{\"id\":{p.Id},\"type\":\"{type}\",\"name\":\"{EscapeJson(p.FileName)}\"}}");
+                }
+                content.Append("]}");
+            }
+            content.Append("];</script>");
+
+            // Render year section shells without card divs
             foreach (var (year, photos) in photosByYear.OrderByDescending(kv => kv.Key))
             {
                 var photoCount = photos.Count(p => p.MediaType == MediaType.Photo);
@@ -88,24 +108,9 @@ public static class PhotoEndpoints
                 if (videoCount > 0) countParts.Add($"{videoCount} video{(videoCount != 1 ? "s" : "")}");
 
                 content.Append($"""
-                    <section class="year-section">
+                    <section class="year-section" data-year="{year}">
                         <h2 class="year-header">{year}<span>{string.Join(", ", countParts)}</span></h2>
-                        <div class="photo-grid">
-                """);
-
-                foreach (var photo in photos)
-                {
-                    var type = photo.MediaType == MediaType.Video ? "video" : "photo";
-                    var cls = photo.MediaType == MediaType.Video ? "photo-card video-card" : "photo-card";
-                    content.Append($"""
-                            <div class="{cls}" data-id="{photo.Id}" data-type="{type}">
-                                <div class="photo-info">{Escape(photo.FileName)}</div>
-                            </div>
-                    """);
-                }
-
-                content.Append("""
-                        </div>
+                        <div class="photo-grid"></div>
                     </section>
                 """);
             }
@@ -138,5 +143,14 @@ public static class PhotoEndpoints
             .Replace("<", "&lt;")
             .Replace(">", "&gt;")
             .Replace("\"", "&quot;");
+    }
+
+    private static string EscapeJson(string text)
+    {
+        return text
+            .Replace("\\", "\\\\")
+            .Replace("\"", "\\\"")
+            .Replace("\n", "\\n")
+            .Replace("\r", "\\r");
     }
 }

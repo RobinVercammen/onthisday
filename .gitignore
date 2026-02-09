@@ -31,6 +31,9 @@ bld/
 [Ll]og/
 [Ll]ogs/
 
+## NAS-specific config
+docker-compose.nas.yml
+
 ## IDE
 .idea/
 *.swp
