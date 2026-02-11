@@ -198,6 +198,10 @@
 
         .lightbox-close:hover { color: #8ab4f8; }
 
+        #lightbox-content > * {
+            will-change: transform, opacity;
+        }
+
         footer {
             text-align: center;
             padding: 2rem 1rem;
@@ -238,6 +242,12 @@
         // Build lookup: year -> items
         const dataByYear = {};
         for (const group of photoData) dataByYear[group.year] = group.items;
+
+        const allItems = [];
+        for (const group of photoData) {
+            for (const item of group.items) allItems.push(item);
+        }
+        let lightboxIndex = -1;
 
         // === Level 1: Section-level virtualization ===
         // Create/destroy card divs when year sections enter/leave viewport
@@ -388,6 +398,7 @@
         const lightboxContent = document.getElementById('lightbox-content');
 
         function openLightbox(id, type, live) {
+            lightboxIndex = allItems.findIndex(item => item.id === id);
             lightboxContent.innerHTML = '';
             if (live) {
                 const video = document.createElement('video');
@@ -420,6 +431,15 @@
             lightbox.classList.remove('active');
             document.body.style.overflow = '';
             lightboxContent.innerHTML = '';
+            lightboxIndex = -1;
+        }
+
+        function navigateLightbox(direction) {
+            if (lightboxIndex < 0) return;
+            const newIndex = lightboxIndex + direction;
+            if (newIndex < 0 || newIndex >= allItems.length) return;
+            const item = allItems[newIndex];
+            openLightbox(item.id, item.type, item.live ? '1' : null);
         }
 
         document.addEventListener('click', (e) => {
@@ -433,7 +453,101 @@
 
         document.getElementById('lightbox-close').addEventListener('click', closeLightbox);
         lightbox.addEventListener('click', (e) => { if (e.target === lightbox) closeLightbox(); });
-        document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeLightbox(); });
+
+        document.addEventListener('keydown', (e) => {
+            if (!lightbox.classList.contains('active')) return;
+            if (e.key === 'Escape') closeLightbox();
+            else if (e.key === 'ArrowLeft') navigateLightbox(-1);
+            else if (e.key === 'ArrowRight') navigateLightbox(1);
+        });
+
+        // === Touch/swipe gesture handling ===
+        (function() {
+            let startX, startY, startTime;
+            let dirLocked = null; // 'h' or 'v' once locked
+            let tracking = false;
+
+            lightbox.addEventListener('touchstart', (e) => {
+                if (e.touches.length > 1) return;
+                // Don't intercept touches on video controls
+                if (e.target.closest('video[controls]')) return;
+                startX = e.touches[0].clientX;
+                startY = e.touches[0].clientY;
+                startTime = Date.now();
+                dirLocked = null;
+                tracking = true;
+            }, { passive: true });
+
+            lightbox.addEventListener('touchmove', (e) => {
+                if (!tracking || e.touches.length > 1) return;
+                const dx = e.touches[0].clientX - startX;
+                const dy = e.touches[0].clientY - startY;
+
+                // Lock direction after 10px movement
+                if (!dirLocked) {
+                    if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+                        dirLocked = Math.abs(dx) >= Math.abs(dy) ? 'h' : 'v';
+                    } else {
+                        return;
+                    }
+                }
+
+                e.preventDefault();
+
+                const el = lightboxContent.firstElementChild;
+                if (!el) return;
+
+                if (dirLocked === 'h') {
+                    el.style.transform = `translateX(${dx}px)`;
+                    el.style.opacity = Math.max(0.3, 1 - Math.abs(dx) / 400);
+                } else {
+                    // Only allow downward drag for dismiss
+                    const clampedDy = Math.max(0, dy);
+                    el.style.transform = `translateY(${clampedDy}px)`;
+                    el.style.opacity = Math.max(0.3, 1 - clampedDy / 400);
+                }
+            }, { passive: false });
+
+            lightbox.addEventListener('touchend', (e) => {
+                if (!tracking) return;
+                tracking = false;
+
+                const el = lightboxContent.firstElementChild;
+                if (!el || !dirLocked) return;
+
+                const touch = e.changedTouches[0];
+                const dx = touch.clientX - startX;
+                const dy = touch.clientY - startY;
+                const dt = Date.now() - startTime;
+                const velocity = dt > 0 ? Math.abs(dirLocked === 'h' ? dx : dy) / dt : 0;
+
+                if (dirLocked === 'h') {
+                    const threshold = 50;
+                    if (dx < -threshold || (dx < 0 && velocity > 0.3)) {
+                        navigateLightbox(1);
+                        return;
+                    } else if (dx > threshold || (dx > 0 && velocity > 0.3)) {
+                        navigateLightbox(-1);
+                        return;
+                    }
+                } else {
+                    const threshold = 100;
+                    if (dy > threshold || (dy > 0 && velocity > 0.3)) {
+                        closeLightbox();
+                        return;
+                    }
+                }
+
+                // Snap back
+                el.style.transition = 'transform 0.2s ease, opacity 0.2s ease';
+                el.style.transform = '';
+                el.style.opacity = '';
+                el.addEventListener('transitionend', function handler() {
+                    el.style.transition = '';
+                    el.removeEventListener('transitionend', handler);
+                }, { once: true });
+            }, { passive: true });
+        })();
     </script>
 </body>
 </html>
