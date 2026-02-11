@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading.Channels;
 using Microsoft.EntityFrameworkCore;
 using OnThisDay.Data;
@@ -16,16 +18,19 @@ public class PhotoIndexingService : BackgroundService
 
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<PhotoIndexingService> _logger;
+    private readonly ThumbnailService _thumbnailService;
     private readonly List<string> _photoDirectories;
     private readonly TimeSpan _rescanInterval;
 
     public PhotoIndexingService(
         IServiceScopeFactory scopeFactory,
         ILogger<PhotoIndexingService> logger,
+        ThumbnailService thumbnailService,
         IConfiguration configuration)
     {
         _scopeFactory = scopeFactory;
         _logger = logger;
+        _thumbnailService = thumbnailService;
 
         var dirs = configuration["PHOTO_DIRECTORIES"] ?? "";
         _photoDirectories = dirs
@@ -34,6 +39,14 @@ public class PhotoIndexingService : BackgroundService
 
         var hours = double.TryParse(configuration["RESCAN_INTERVAL_HOURS"], out var h) ? h : 6;
         _rescanInterval = TimeSpan.FromHours(hours);
+    }
+
+    private static string ComputeFileHash(string filePath)
+    {
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(filePath));
+        return Convert.ToBase64String(hash, 0, 9)
+            .Replace('+', '-')
+            .Replace('/', '_');
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -46,6 +59,9 @@ public class PhotoIndexingService : BackgroundService
             try
             {
                 await ScanAllDirectories(stoppingToken);
+
+                var today = DateTime.Now;
+                await _thumbnailService.PreloadThumbnailsForDayAsync(today.Month, today.Day, stoppingToken);
             }
             catch (Exception ex)
             {
@@ -135,7 +151,7 @@ public class PhotoIndexingService : BackgroundService
         _logger.LogInformation("Found {Count} files to index", filesToIndex.Count);
 
         // Extract EXIF data in parallel using a producer-consumer pattern
-        var channel = Channel.CreateUnbounded<(string filePath, FileInfo fileInfo, DateTime dateTaken, DateSource source, MediaType mediaType, string? movSibling)>(
+        var channel = Channel.CreateUnbounded<(string filePath, FileInfo fileInfo, DateTime dateTaken, DateSource source, MediaType mediaType, string? movSibling, string fileHash)>(
             new UnboundedChannelOptions { SingleReader = true });
 
         var producerTask = Task.Run(() =>
@@ -151,11 +167,13 @@ public class PhotoIndexingService : BackgroundService
                 try
                 {
                     var fileInfo = new FileInfo(filePath);
+                    var fileHash = ComputeFileHash(filePath);
 
-                    // Skip unchanged files early
+                    // Skip unchanged files early (but force reprocess if FileHash is empty from pre-upgrade DB)
                     if (existingRecords.TryGetValue(filePath, out var existing)
                         && existing.FileSize == fileInfo.Length
-                        && existing.FileLastModified == fileInfo.LastWriteTimeUtc)
+                        && existing.FileLastModified == fileInfo.LastWriteTimeUtc
+                        && !string.IsNullOrEmpty(existing.FileHash))
                     {
                         return;
                     }
@@ -164,7 +182,7 @@ public class PhotoIndexingService : BackgroundService
                     var mediaType = ExifService.GetMediaType(filePath);
                     var movSibling = mediaType == MediaType.Photo ? FindMovSibling(filePath) : null;
 
-                    channel.Writer.TryWrite((filePath, fileInfo, dateTaken, source, mediaType, movSibling));
+                    channel.Writer.TryWrite((filePath, fileInfo, dateTaken, source, mediaType, movSibling, fileHash));
                 }
                 catch (Exception ex)
                 {
@@ -193,6 +211,7 @@ public class PhotoIndexingService : BackgroundService
                 existing.IndexedAt = DateTime.UtcNow;
                 existing.MediaType = item.mediaType;
                 existing.LivePhotoMovPath = item.movSibling;
+                existing.FileHash = item.fileHash;
                 updatedCount++;
             }
             else
@@ -200,6 +219,7 @@ public class PhotoIndexingService : BackgroundService
                 db.Photos.Add(new PhotoRecord
                 {
                     FilePath = item.filePath,
+                    FileHash = item.fileHash,
                     FileName = item.fileInfo.Name,
                     DateTaken = item.dateTaken,
                     Month = item.dateTaken.Month,

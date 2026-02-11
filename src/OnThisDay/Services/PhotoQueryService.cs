@@ -15,8 +15,9 @@ public class PhotoQueryService
 
     public async Task<Dictionary<int, List<PhotoRecord>>> GetPhotosForDay(int month, int day)
     {
+        var currentYear = DateTime.Now.Year;
         var photos = await _db.Photos
-            .Where(p => p.Month == month && p.Day == day)
+            .Where(p => p.Month == month && p.Day == day && p.Year < currentYear && p.FileHash != "")
             .OrderByDescending(p => p.Year)
             .ThenBy(p => p.DateTaken)
             .AsNoTracking()
@@ -27,10 +28,10 @@ public class PhotoQueryService
             .ToDictionary(g => g.Key, g => g.ToList());
     }
 
-    public async Task<PhotoRecord?> GetPhotoById(int id)
+    public async Task<PhotoRecord?> GetPhotoByHash(string fileHash)
     {
         return await _db.Photos
             .AsNoTracking()
-            .FirstOrDefaultAsync(p => p.Id == id);
+            .FirstOrDefaultAsync(p => p.FileHash == fileHash);
     }
 }

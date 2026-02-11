@@ -17,8 +17,9 @@ public static class PhotoEndpoints
     public static void MapPhotoEndpoints(this WebApplication app)
     {
         app.MapGet("/", HandleHomePage);
-        app.MapGet("/photo/{id:int}", HandlePhotoServe);
-        app.MapGet("/photo/{id:int}/live", HandleLivePhotoServe);
+        app.MapGet("/photo/{hash}", HandlePhotoServe);
+        app.MapGet("/photo/{hash}/thumb", HandleThumbnailServe);
+        app.MapGet("/photo/{hash}/live", HandleLivePhotoServe);
         app.MapGet("/apple-touch-icon.png", HandleAppleTouchIcon);
     }
 
@@ -41,11 +42,11 @@ public static class PhotoEndpoints
     }
 
     private static async Task<IResult> HandlePhotoServe(
-        int id,
+        string hash,
         HttpContext context,
         PhotoQueryService queryService)
     {
-        var photo = await queryService.GetPhotoById(id);
+        var photo = await queryService.GetPhotoByHash(hash);
         if (photo == null)
             return Results.NotFound();
 
@@ -57,7 +58,7 @@ public static class PhotoEndpoints
 
         var fileInfo = new FileInfo(photo.FilePath);
         var lastModified = new DateTimeOffset(fileInfo.LastWriteTimeUtc, TimeSpan.Zero);
-        var eTag = new EntityTagHeaderValue($"\"{id}-{fileInfo.Length}\"");
+        var eTag = new EntityTagHeaderValue($"\"{hash}-{fileInfo.Length}\"");
 
         context.Response.Headers.CacheControl = "public, max-age=31536000, immutable";
 
@@ -70,16 +71,30 @@ public static class PhotoEndpoints
     }
 
     private static async Task<IResult> HandleLivePhotoServe(
-        int id,
+        string hash,
         HttpContext context,
         PhotoQueryService queryService)
     {
-        var photo = await queryService.GetPhotoById(id);
+        var photo = await queryService.GetPhotoByHash(hash);
         if (photo?.LivePhotoMovPath == null || !File.Exists(photo.LivePhotoMovPath))
             return Results.NotFound();
 
         context.Response.Headers.CacheControl = "public, max-age=31536000, immutable";
         return Results.File(photo.LivePhotoMovPath, "video/quicktime", enableRangeProcessing: true);
+    }
+
+    private static async Task<IResult> HandleThumbnailServe(
+        string hash,
+        HttpContext context,
+        ThumbnailService thumbnailService,
+        CancellationToken ct)
+    {
+        var bytes = await thumbnailService.GetOrCreateThumbnailAsync(hash, ct);
+        if (bytes == null)
+            return Results.NotFound();
+
+        context.Response.Headers.CacheControl = "public, max-age=86400";
+        return Results.File(bytes, "image/jpeg");
     }
 
     private static string RenderPage(int month, int day, Dictionary<int, List<PhotoRecord>> photosByYear)
@@ -122,7 +137,7 @@ public static class PhotoEndpoints
                     var p = photos[i];
                     var type = p.MediaType == MediaType.Video ? "video" : "photo";
                     var live = p.LivePhotoMovPath != null ? ",\"live\":true" : "";
-                    content.Append($"{{\"id\":{p.Id},\"type\":\"{type}\",\"name\":\"{EscapeJson(p.FileName)}\"{live}}}");
+                    content.Append($"{{\"id\":\"{EscapeJson(p.FileHash)}\",\"type\":\"{type}\",\"name\":\"{EscapeJson(p.FileName)}\"{live}}}");
                 }
                 content.Append("]}");
             }

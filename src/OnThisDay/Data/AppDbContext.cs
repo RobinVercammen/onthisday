@@ -22,7 +22,12 @@ public class AppDbContext : DbContext
                 .IsUnique()
                 .HasDatabaseName("IX_Photos_FilePath");
 
+            entity.HasIndex(e => e.FileHash)
+                .IsUnique()
+                .HasDatabaseName("IX_Photos_FileHash");
+
             entity.Property(e => e.FilePath).IsRequired();
+            entity.Property(e => e.FileHash).IsRequired();
             entity.Property(e => e.FileName).IsRequired();
             entity.Property(e => e.DateSource)
                 .HasConversion<string>();

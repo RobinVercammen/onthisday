@@ -17,14 +17,20 @@ if (!string.IsNullOrEmpty(dbDir))
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlite($"Data Source={dbPath}"));
 
+// Thumbnail cache
+builder.Services.AddMemoryCache(options =>
+{
+    options.SizeLimit = 1_073_741_824; // 1 GB
+});
+
 // Services
 builder.Services.AddSingleton<ExifService>();
+builder.Services.AddSingleton<ThumbnailService>();
 builder.Services.AddScoped<PhotoQueryService>();
 builder.Services.AddHostedService<PhotoIndexingService>();
 
 var app = builder.Build();
 
-// Ensure database is created
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();

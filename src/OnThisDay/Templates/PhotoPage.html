@@ -117,14 +117,6 @@
 
         .photo-card:hover .photo-info { opacity: 1; }
 
-        /* Video thumbnail card */
-        .video-card video {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            pointer-events: none;
-        }
-
         .video-overlay {
             position: absolute;
             inset: 0;
@@ -325,18 +317,6 @@
         // === Level 2: Media recycling within visible sections ===
         // Populate/depopulate img/video elements on individual cards
 
-        const posterCache = {};
-        const THUMB_SIZE = 300;
-
-        function toThumbDataUrl(source, srcW, srcH) {
-            const scale = Math.min(THUMB_SIZE / srcW, THUMB_SIZE / srcH, 1);
-            const c = document.createElement('canvas');
-            c.width = Math.round(srcW * scale);
-            c.height = Math.round(srcH * scale);
-            c.getContext('2d').drawImage(source, 0, 0, c.width, c.height);
-            return c.toDataURL('image/jpeg', 0.6);
-        }
-
         function populateCard(card) {
             if (card.querySelector('a')) return;
             const id = card.dataset.id;
@@ -347,36 +327,15 @@
             a.dataset.type = type;
             a.className = 'lightbox-trigger';
 
+            const img = document.createElement('img');
+            img.src = '/photo/' + id + '/thumb';
+            a.appendChild(img);
+
             if (type === 'video') {
-                if (posterCache[id]) {
-                    const img = document.createElement('img');
-                    img.src = posterCache[id];
-                    a.appendChild(img);
-                } else {
-                    const video = document.createElement('video');
-                    video.src = '/photo/' + id + '#t=0.5';
-                    video.preload = 'metadata';
-                    video.muted = true;
-                    video.addEventListener('loadeddata', () => {
-                        try { posterCache[id] = toThumbDataUrl(video, video.videoWidth, video.videoHeight); } catch(e) {}
-                    });
-                    a.appendChild(video);
-                }
                 const overlay = document.createElement('div');
                 overlay.className = 'video-overlay';
                 overlay.innerHTML = PLAY_SVG;
                 a.appendChild(overlay);
-            } else {
-                const img = document.createElement('img');
-                if (posterCache[id]) {
-                    img.src = posterCache[id];
-                } else {
-                    img.src = '/photo/' + id;
-                    img.addEventListener('load', () => {
-                        try { posterCache[id] = toThumbDataUrl(img, img.naturalWidth, img.naturalHeight); } catch(e) {}
-                    });
-                }
-                a.appendChild(img);
             }
 
             card.insertBefore(a, card.firstChild);
