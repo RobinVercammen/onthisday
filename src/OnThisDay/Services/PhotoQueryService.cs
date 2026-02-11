@@ -15,9 +15,8 @@ public class PhotoQueryService
 
     public async Task<Dictionary<int, List<PhotoRecord>>> GetPhotosForDay(int month, int day)
     {
-        var currentYear = DateTime.Now.Year;
         var photos = await _db.Photos
-            .Where(p => p.Month == month && p.Day == day && p.Year < currentYear && p.FileHash != "")
+            .Where(p => p.Month == month && p.Day == day && p.FileHash != "")
             .OrderByDescending(p => p.Year)
             .ThenBy(p => p.DateTaken)
             .AsNoTracking()
