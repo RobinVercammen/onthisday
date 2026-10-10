@@ -26,6 +26,7 @@ builder.Services.AddMemoryCache(options =>
 // Services
 builder.Services.AddSingleton<ExifService>();
 builder.Services.AddSingleton<ThumbnailService>();
+builder.Services.AddSingleton<PersonDetector>();
 builder.Services.AddScoped<PhotoQueryService>();
 builder.Services.AddHostedService<PhotoIndexingService>();
 
@@ -35,6 +36,18 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     db.Database.EnsureCreated();
+
+    // EnsureCreated() leaves an existing database alone, so add columns introduced later by hand
+    var columns = db.Database
+        .SqlQueryRaw<string>("SELECT name AS Value FROM pragma_table_info('Photos')")
+        .ToList();
+    foreach (var column in new[] { "PersonScore", "PersonArea", "FocusX", "FocusY", "FocusW", "FocusH" })
+    {
+        if (!columns.Contains(column))
+#pragma warning disable EF1003 // column names are the constants above
+            db.Database.ExecuteSqlRaw("ALTER TABLE Photos ADD COLUMN " + column + " REAL");
+#pragma warning restore EF1003
+    }
 }
 
 // Map endpoints

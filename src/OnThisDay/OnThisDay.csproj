@@ -14,10 +14,13 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.2" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.30.0" />
   </ItemGroup>
 
   <ItemGroup>
     <Content Include="Templates\**" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Person model, if downloaded into the repo's models/ folder (gitignored; the Dockerfile fetches it) -->
+    <None Include="..\..\models\*.onnx" Link="models\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

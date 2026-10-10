@@ -27,6 +27,17 @@ public class PhotoQueryService
             .ToDictionary(g => g.Key, g => g.ToList());
     }
 
+    public async Task<List<PhotoRecord>> GetPhotosForDay(int month, int day, int minYear, bool photosOnly)
+    {
+        return await _db.Photos
+            .Where(p => p.Month == month && p.Day == day && p.Year >= minYear && p.FileHash != "")
+            .Where(p => !photosOnly || p.MediaType == MediaType.Photo)
+            .OrderByDescending(p => p.Year)
+            .ThenBy(p => p.DateTaken)
+            .AsNoTracking()
+            .ToListAsync();
+    }
+
     public async Task<PhotoRecord?> GetPhotoByHash(string fileHash)
     {
         return await _db.Photos

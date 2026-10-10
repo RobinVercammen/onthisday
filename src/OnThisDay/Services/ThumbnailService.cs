@@ -44,17 +44,105 @@ public class ThumbnailService
         };
 
         if (thumbBytes != null)
-        {
-            var endOfDay = DateTime.Today.AddDays(1);
-            var options = new MemoryCacheEntryOptions
-            {
-                Size = thumbBytes.Length,
-                AbsoluteExpiration = endOfDay
-            };
-            _cache.Set(cacheKey, thumbBytes, options);
-        }
+            CacheUntilMidnight(cacheKey, thumbBytes);
 
         return thumbBytes;
+    }
+
+    /// <summary>
+    /// JPEG of a photo at exactly width×height, cropped around the detected persons (or centred when there
+    /// are none). Without a height it fits within width instead.
+    /// </summary>
+    public async Task<byte[]?> GetOrCreateImageAsync(string fileHash, int width, int? height, CancellationToken ct)
+    {
+        var cacheKey = $"img{width}x{height}:{fileHash}";
+
+        if (_cache.TryGetValue(cacheKey, out byte[]? cached))
+            return cached;
+
+        using var scope = _scopeFactory.CreateScope();
+        var queryService = scope.ServiceProvider.GetRequiredService<PhotoQueryService>();
+        var photo = await queryService.GetPhotoByHash(fileHash);
+
+        // Photos only; a video id gets a 404
+        if (photo == null || photo.MediaType != MediaType.Photo || !File.Exists(photo.FilePath))
+            return null;
+
+        // Rendered in memory and kept only in the cache, never written to disk
+        byte[]? imageBytes = null;
+        try
+        {
+            imageBytes = await Task.Run(() =>
+            {
+                ct.ThrowIfCancellationRequested();
+                using var image = LoadOriented(photo.FilePath);
+                return RenderImage(image, GetFocus(photo), width, height);
+            }, ct);
+        }
+        catch (MagickException ex)
+        {
+            _logger.LogWarning(ex, "Failed to generate image for {File}", photo.FilePath);
+        }
+
+        if (imageBytes != null)
+            CacheUntilMidnight(cacheKey, imageBytes);
+
+        return imageBytes;
+    }
+
+    /// <summary>Decodes any supported photo (HEIC included) upright.</summary>
+    public static MagickImage LoadOriented(string filePath)
+    {
+        var image = new MagickImage(filePath);
+        try
+        {
+            image.AutoOrient();
+            return image;
+        }
+        catch
+        {
+            image.Dispose();
+            throw;
+        }
+    }
+
+    private static FocusBox? GetFocus(PhotoRecord photo) =>
+        photo is { FocusX: { } x, FocusY: { } y, FocusW: { } w, FocusH: { } h }
+            ? new FocusBox(x, y, w, h)
+            : null;
+
+    private static byte[] RenderImage(MagickImage image, FocusBox? focus, int width, int? height)
+    {
+        if (height is { } h)
+        {
+            var crop = FocusCrop.Compute((int)image.Width, (int)image.Height, focus, width, h);
+            image.Crop(new MagickGeometry(crop.X, crop.Y, (uint)crop.W, (uint)crop.H));
+            image.ResetPage();
+            image.Resize(new MagickGeometry((uint)width, (uint)h) { IgnoreAspectRatio = true });
+        }
+        else
+        {
+            image.Resize(new MagickGeometry((uint)width, (uint)width)
+            {
+                IgnoreAspectRatio = false,
+                Greater = true
+            });
+        }
+
+        image.Quality = 85;
+        image.Format = MagickFormat.Jpeg;
+        return image.ToByteArray();
+    }
+
+    private void CacheUntilMidnight(string cacheKey, byte[] bytes)
+    {
+        var endOfDay = DateTime.Today.AddDays(1);
+        var options = new MemoryCacheEntryOptions
+        {
+            Size = bytes.Length,
+            AbsoluteExpiration = endOfDay
+        };
+        _cache.Set(cacheKey, bytes, options);
     }
 
     public async Task PreloadThumbnailsForDayAsync(int month, int day, CancellationToken ct)
@@ -92,8 +180,7 @@ public class ThumbnailService
             return await Task.Run(() =>
             {
                 ct.ThrowIfCancellationRequested();
-                using var image = new MagickImage(filePath);
-                image.AutoOrient();
+                using var image = LoadOriented(filePath);
                 image.Resize(new MagickGeometry(300, 300)
                 {
                     IgnoreAspectRatio = false,

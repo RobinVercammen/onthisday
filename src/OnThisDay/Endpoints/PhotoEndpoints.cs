@@ -20,6 +20,8 @@ public static class PhotoEndpoints
         app.MapGet("/photo/{hash}", HandlePhotoServe);
         app.MapGet("/photo/{hash}/thumb", HandleThumbnailServe);
         app.MapGet("/photo/{hash}/live", HandleLivePhotoServe);
+        app.MapGet("/photo/{hash}/image", HandleImageServe);
+        app.MapGet("/api/day", HandleDayApi);
         app.MapGet("/apple-touch-icon.png", HandleAppleTouchIcon);
     }
 
@@ -95,6 +97,58 @@ public static class PhotoEndpoints
 
         context.Response.Headers.CacheControl = "public, max-age=86400";
         return Results.File(bytes, "image/jpeg");
+    }
+
+    private static async Task<IResult> HandleImageServe(
+        string hash,
+        HttpContext context,
+        ThumbnailService thumbnailService,
+        CancellationToken ct,
+        int w = 1024,
+        int? h = null)
+    {
+        w = Math.Clamp(w, 64, 2048);
+        if (h != null)
+            h = Math.Clamp(h.Value, 64, 2048);
+
+        var bytes = await thumbnailService.GetOrCreateImageAsync(hash, w, h, ct);
+        if (bytes == null)
+            return Results.NotFound();
+
+        context.Response.Headers.CacheControl = "public, max-age=86400";
+        return Results.File(bytes, "image/jpeg");
+    }
+
+    // Read-only: detection runs in PhotoIndexingService, so with person=true unscanned photos are left out
+    private static async Task<IResult> HandleDayApi(
+        PhotoQueryService queryService,
+        PersonDetector personDetector,
+        int? month,
+        int? day,
+        int minYear = 2023,
+        bool person = true,
+        float minScore = 0.5f,
+        float minArea = 0.03f)
+    {
+        var now = DateTime.Now;
+        var m = Math.Clamp(month ?? now.Month, 1, 12);
+        var d = Math.Clamp(day ?? now.Day, 1, DateTime.DaysInMonth(2000, m)); // use leap year for max days
+
+        var photos = await queryService.GetPhotosForDay(m, d, minYear, photosOnly: true);
+
+        // Without the model nothing is ever scanned, so return everything (PersonDetector logs a warning at startup)
+        if (person && personDetector.IsEnabled)
+            photos = photos.Where(p => p.PersonScore >= minScore && p.PersonArea >= minArea).ToList();
+
+        return Results.Json(photos.Select(p => new
+        {
+            id = p.FileHash,
+            year = p.Year,
+            dateTaken = p.DateTaken,
+            name = p.FileName,
+            personScore = p.PersonScore,
+            personArea = p.PersonArea
+        }));
     }
 
     private static string RenderPage(int month, int day, Dictionary<int, List<PhotoRecord>> photosByYear)

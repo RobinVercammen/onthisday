@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/dotnet/sdk:10.0-alpine AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 COPY src/OnThisDay/OnThisDay.csproj src/OnThisDay/
@@ -7,14 +7,21 @@ RUN dotnet restore src/OnThisDay/OnThisDay.csproj
 COPY src/ src/
 RUN dotnet publish src/OnThisDay/OnThisDay.csproj -c Release -o /app/publish
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine AS runtime
+# Debian, not Alpine: the OnnxRuntime native library needs glibc
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 
-RUN apk add --no-cache ffmpeg
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+# YOLOX-s person detector (Apache-2.0), pinned to the official Megvii release
+ADD https://github.com/Megvii-BaseDetection/YOLOX/releases/download/0.1.1rc0/yolox_s.onnx /app/models/yolox_s.onnx
 
 COPY --from=build /app/publish .
 
 ENV ASPNETCORE_URLS=http://+:8080
+ENV TZ=Europe/Brussels
 EXPOSE 8080
 
 ENTRYPOINT ["dotnet", "OnThisDay.dll"]

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Channels;
@@ -16,9 +17,14 @@ public class PhotoIndexingService : BackgroundService
         ".mp4", ".mov", ".avi", ".mkv", ".webm"
     };
 
+    // Person detection only covers photos from this year on; older ones are never scanned
+    private const int DetectMinYear = 2023;
+    private const int DetectBatchSize = 50;
+
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<PhotoIndexingService> _logger;
     private readonly ThumbnailService _thumbnailService;
+    private readonly PersonDetector _personDetector;
     private readonly List<string> _photoDirectories;
     private readonly TimeSpan _rescanInterval;
 
@@ -26,11 +32,13 @@ public class PhotoIndexingService : BackgroundService
         IServiceScopeFactory scopeFactory,
         ILogger<PhotoIndexingService> logger,
         ThumbnailService thumbnailService,
+        PersonDetector personDetector,
         IConfiguration configuration)
     {
         _scopeFactory = scopeFactory;
         _logger = logger;
         _thumbnailService = thumbnailService;
+        _personDetector = personDetector;
 
         var dirs = configuration["PHOTO_DIRECTORIES"] ?? "";
         _photoDirectories = dirs
@@ -62,6 +70,8 @@ public class PhotoIndexingService : BackgroundService
 
                 var today = DateTime.Now;
                 await _thumbnailService.PreloadThumbnailsForDayAsync(today.Month, today.Day, stoppingToken);
+
+                await DetectPersonsAsync(stoppingToken);
             }
             catch (Exception ex)
             {
@@ -212,6 +222,14 @@ public class PhotoIndexingService : BackgroundService
                 existing.MediaType = item.mediaType;
                 existing.LivePhotoMovPath = item.movSibling;
                 existing.FileHash = item.fileHash;
+
+                // Changed file: scan it for persons again
+                existing.PersonScore = null;
+                existing.PersonArea = null;
+                existing.FocusX = null;
+                existing.FocusY = null;
+                existing.FocusW = null;
+                existing.FocusH = null;
                 updatedCount++;
             }
             else
@@ -261,5 +279,81 @@ public class PhotoIndexingService : BackgroundService
         _logger.LogInformation(
             "Indexing complete: {New} new, {Updated} updated, {Pruned} pruned. Total: {Total}",
             newCount, updatedCount, toRemove.Count, await db.Photos.CountAsync(ct));
+    }
+
+    private async Task DetectPersonsAsync(CancellationToken ct)
+    {
+        if (!_personDetector.IsEnabled)
+            return;
+
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        IQueryable<PhotoRecord> Pending() => db.Photos
+            .Where(p => p.MediaType == MediaType.Photo && p.Year >= DetectMinYear && p.PersonScore == null);
+
+        var total = await Pending().CountAsync(ct);
+        if (total == 0)
+        {
+            _logger.LogInformation("Person detection: nothing to scan");
+            return;
+        }
+
+        var scanned = 0;
+        var stopwatch = Stopwatch.StartNew();
+
+        while (true)
+        {
+            // Pick each batch afresh: today's and tomorrow's photos go first (the hubcast night fetch wants them),
+            // also when the backfill runs past midnight; the rest follows oldest IndexedAt first
+            var today = DateTime.Today;
+            var tomorrow = today.AddDays(1);
+            int m1 = today.Month, d1 = today.Day, m2 = tomorrow.Month, d2 = tomorrow.Day;
+
+            if (scanned == 0)
+            {
+                var priority = await Pending().CountAsync(p => (p.Month == m1 && p.Day == d1) || (p.Month == m2 && p.Day == d2), ct);
+                _logger.LogInformation("Person detection: {Total} photos to scan, {Priority} of them from today or tomorrow",
+                    total, priority);
+            }
+
+            var batch = await Pending()
+                .OrderByDescending(p => (p.Month == m1 && p.Day == d1) || (p.Month == m2 && p.Day == d2))
+                .ThenBy(p => p.IndexedAt)
+                .Take(DetectBatchSize)
+                .ToListAsync(ct);
+
+            if (batch.Count == 0)
+                break;
+
+            foreach (var photo in batch)
+            {
+                ct.ThrowIfCancellationRequested();
+                try
+                {
+                    var result = _personDetector.Detect(photo.FilePath);
+                    photo.PersonScore = result.Score;
+                    photo.PersonArea = result.Area;
+                    photo.FocusX = result.Focus?.X;
+                    photo.FocusY = result.Focus?.Y;
+                    photo.FocusW = result.Focus?.W;
+                    photo.FocusH = result.Focus?.H;
+                }
+                catch (Exception ex)
+                {
+                    // Score 0 so a broken file is not retried on every scan
+                    _logger.LogWarning(ex, "Person detection failed for {File}", photo.FilePath);
+                    photo.PersonScore = 0;
+                    photo.PersonArea = 0;
+                }
+            }
+
+            await db.SaveChangesAsync(ct);
+            db.ChangeTracker.Clear();
+            scanned += batch.Count;
+
+            _logger.LogInformation("Person detection: {Scanned}/{Total} scanned, {Ms} ms per photo",
+                scanned, total, stopwatch.ElapsedMilliseconds / scanned);
+        }
     }
 }
