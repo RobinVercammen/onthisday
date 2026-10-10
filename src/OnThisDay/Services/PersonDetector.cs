@@ -35,7 +35,7 @@ public sealed class PersonDetector : IDisposable
             return;
         }
 
-        // Two threads keep the NAS responsive while the backfill runs
+        // Two threads keep the NAS responsive while detection runs
         using var options = new SessionOptions { IntraOpNumThreads = 2, InterOpNumThreads = 1 };
         var session = new InferenceSession(modelPath, options);
 

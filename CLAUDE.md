@@ -31,7 +31,7 @@ There are no tests or linting configured in this project.
 2. **PhotoEndpoints** serves a single HTML page (`GET /`) with photo metadata embedded as JSON, plus media endpoints (`GET /photo/{id}`, `/photo/{id}/live`, `/photo/{id}/thumb`).
    - `GET /api/day?month=&day=&minYear=2023&person=true&minScore=0.5&minArea=0.03` — JSON `[{ id, year, dateTaken, name, personScore, personArea }]` for one calendar day, photos only (month/day default to today). Read-only: with `person=true`, photos not scanned yet are left out.
    - `GET /photo/{id}/image?w=314&h=246` — JPEG of exactly w×h (64–2048), cropped around the detected persons (centre crop when there are none); without `h` it fits within `w`. Photos only (404 for videos); rendered in memory and cached until midnight.
-3. **PersonDetector** (YOLOX-s ONNX, COCO class 0) runs inside PhotoIndexingService after each scan, on photos from 2023 on that have no `PersonScore` yet: today's and tomorrow's date first, then the backfill. It stores the best score, the largest person area and the normalised person box (`Focus*`) on the record; a changed file is scanned again.
+3. **PersonDetector** (YOLOX-s ONNX, COCO class 0) runs inside PhotoIndexingService after each scan, on today's photos from 2023 on that have no `PersonScore` yet (incremental, one day at a time; no backfill). It stores the best score, the largest person area and the normalised person box (`Focus*`) on the record; a changed file is scanned again.
 4. **PhotoPage.html** (the entire frontend) uses two-level virtual scrolling — section-level (year groups) and card-level (individual photos) — via IntersectionObserver to handle large libraries without DOM bloat.
 
 ### Key Source Layout

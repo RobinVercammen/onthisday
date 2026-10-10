@@ -19,7 +19,6 @@ public class PhotoIndexingService : BackgroundService
 
     // Person detection only covers photos from this year on; older ones are never scanned
     private const int DetectMinYear = 2023;
-    private const int DetectBatchSize = 50;
 
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<PhotoIndexingService> _logger;
@@ -71,7 +70,7 @@ public class PhotoIndexingService : BackgroundService
                 var today = DateTime.Now;
                 await _thumbnailService.PreloadThumbnailsForDayAsync(today.Month, today.Day, stoppingToken);
 
-                await DetectPersonsAsync(stoppingToken);
+                await DetectPersonsAsync(today.Month, today.Day, stoppingToken);
             }
             catch (Exception ex)
             {
@@ -281,7 +280,8 @@ public class PhotoIndexingService : BackgroundService
             newCount, updatedCount, toRemove.Count, await db.Photos.CountAsync(ct));
     }
 
-    private async Task DetectPersonsAsync(CancellationToken ct)
+    // Incremental: only the given day's photos (2023 on) that were not scanned yet, so each day costs a few dozen photos
+    private async Task DetectPersonsAsync(int month, int day, CancellationToken ct)
     {
         if (!_personDetector.IsEnabled)
             return;
@@ -289,71 +289,42 @@ public class PhotoIndexingService : BackgroundService
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-        IQueryable<PhotoRecord> Pending() => db.Photos
-            .Where(p => p.MediaType == MediaType.Photo && p.Year >= DetectMinYear && p.PersonScore == null);
+        var pending = await db.Photos
+            .Where(p => p.Month == month && p.Day == day && p.MediaType == MediaType.Photo
+                && p.Year >= DetectMinYear && p.PersonScore == null)
+            .ToListAsync(ct);
 
-        var total = await Pending().CountAsync(ct);
-        if (total == 0)
+        if (pending.Count == 0)
         {
-            _logger.LogInformation("Person detection: nothing to scan");
+            _logger.LogInformation("Person detection: nothing to scan for {Month}/{Day}", month, day);
             return;
         }
 
-        var scanned = 0;
         var stopwatch = Stopwatch.StartNew();
-
-        while (true)
+        foreach (var photo in pending)
         {
-            // Pick each batch afresh: today's and tomorrow's photos go first (the hubcast night fetch wants them),
-            // also when the backfill runs past midnight; the rest follows oldest IndexedAt first
-            var today = DateTime.Today;
-            var tomorrow = today.AddDays(1);
-            int m1 = today.Month, d1 = today.Day, m2 = tomorrow.Month, d2 = tomorrow.Day;
-
-            if (scanned == 0)
+            ct.ThrowIfCancellationRequested();
+            try
             {
-                var priority = await Pending().CountAsync(p => (p.Month == m1 && p.Day == d1) || (p.Month == m2 && p.Day == d2), ct);
-                _logger.LogInformation("Person detection: {Total} photos to scan, {Priority} of them from today or tomorrow",
-                    total, priority);
+                var result = _personDetector.Detect(photo.FilePath);
+                photo.PersonScore = result.Score;
+                photo.PersonArea = result.Area;
+                photo.FocusX = result.Focus?.X;
+                photo.FocusY = result.Focus?.Y;
+                photo.FocusW = result.Focus?.W;
+                photo.FocusH = result.Focus?.H;
             }
-
-            var batch = await Pending()
-                .OrderByDescending(p => (p.Month == m1 && p.Day == d1) || (p.Month == m2 && p.Day == d2))
-                .ThenBy(p => p.IndexedAt)
-                .Take(DetectBatchSize)
-                .ToListAsync(ct);
-
-            if (batch.Count == 0)
-                break;
-
-            foreach (var photo in batch)
+            catch (Exception ex)
             {
-                ct.ThrowIfCancellationRequested();
-                try
-                {
-                    var result = _personDetector.Detect(photo.FilePath);
-                    photo.PersonScore = result.Score;
-                    photo.PersonArea = result.Area;
-                    photo.FocusX = result.Focus?.X;
-                    photo.FocusY = result.Focus?.Y;
-                    photo.FocusW = result.Focus?.W;
-                    photo.FocusH = result.Focus?.H;
-                }
-                catch (Exception ex)
-                {
-                    // Score 0 so a broken file is not retried on every scan
-                    _logger.LogWarning(ex, "Person detection failed for {File}", photo.FilePath);
-                    photo.PersonScore = 0;
-                    photo.PersonArea = 0;
-                }
+                // Score 0 so a broken file is not retried on every scan
+                _logger.LogWarning(ex, "Person detection failed for {File}", photo.FilePath);
+                photo.PersonScore = 0;
+                photo.PersonArea = 0;
             }
-
-            await db.SaveChangesAsync(ct);
-            db.ChangeTracker.Clear();
-            scanned += batch.Count;
-
-            _logger.LogInformation("Person detection: {Scanned}/{Total} scanned, {Ms} ms per photo",
-                scanned, total, stopwatch.ElapsedMilliseconds / scanned);
         }
+        await db.SaveChangesAsync(ct);
+
+        _logger.LogInformation("Person detection: {Count} photos scanned for {Month}/{Day}, {Ms} ms per photo",
+            pending.Count, month, day, stopwatch.ElapsedMilliseconds / pending.Count);
     }
 }
