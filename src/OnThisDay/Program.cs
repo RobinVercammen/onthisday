@@ -41,7 +41,7 @@ using (var scope = app.Services.CreateScope())
     var columns = db.Database
         .SqlQueryRaw<string>("SELECT name AS Value FROM pragma_table_info('Photos')")
         .ToList();
-    foreach (var column in new[] { "PersonScore", "PersonArea", "FocusX", "FocusY", "FocusW", "FocusH" })
+    foreach (var column in new[] { "PersonScore", "PersonArea", "CatScore", "CatArea", "FocusX", "FocusY", "FocusW", "FocusH" })
     {
         if (!columns.Contains(column))
 #pragma warning disable EF1003 // column names are the constants above

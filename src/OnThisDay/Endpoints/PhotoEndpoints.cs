@@ -119,7 +119,8 @@ public static class PhotoEndpoints
         return Results.File(bytes, "image/jpeg");
     }
 
-    // Read-only: detection runs in PhotoIndexingService, so with person=true unscanned photos are left out
+    // Read-only: detection runs in PhotoIndexingService, so with person/cat=true unscanned photos are left out.
+    // With both on, a photo with a person or a cat is kept.
     private static async Task<IResult> HandleDayApi(
         PhotoQueryService queryService,
         PersonDetector personDetector,
@@ -127,6 +128,7 @@ public static class PhotoEndpoints
         int? day,
         int minYear = 2023,
         bool person = true,
+        bool cat = true,
         float minScore = 0.5f,
         float minArea = 0.03f)
     {
@@ -137,8 +139,11 @@ public static class PhotoEndpoints
         var photos = await queryService.GetPhotosForDay(m, d, minYear, photosOnly: true);
 
         // Without the model nothing is ever scanned, so return everything (PersonDetector logs a warning at startup)
-        if (person && personDetector.IsEnabled)
-            photos = photos.Where(p => p.PersonScore >= minScore && p.PersonArea >= minArea).ToList();
+        if ((person || cat) && personDetector.IsEnabled)
+            photos = photos.Where(p =>
+                    (person && p.PersonScore >= minScore && p.PersonArea >= minArea)
+                    || (cat && p.CatScore >= minScore && p.CatArea >= minArea))
+                .ToList();
 
         return Results.Json(photos.Select(p => new
         {
@@ -147,7 +152,9 @@ public static class PhotoEndpoints
             dateTaken = p.DateTaken,
             name = p.FileName,
             personScore = p.PersonScore,
-            personArea = p.PersonArea
+            personArea = p.PersonArea,
+            catScore = p.CatScore,
+            catArea = p.CatArea
         }));
     }
 

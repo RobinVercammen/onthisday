@@ -34,7 +34,11 @@ public class PhotoRecord
     public float? PersonScore { get; set; }
     public float? PersonArea { get; set; }
 
-    // Union of the person boxes, normalised to 0-1 of the auto-oriented image
+    // Cat detection, same pass; null means not scanned yet (also for photos scanned before cats were added)
+    public float? CatScore { get; set; }
+    public float? CatArea { get; set; }
+
+    // Union of the person and cat boxes, normalised to 0-1 of the auto-oriented image
     public float? FocusX { get; set; }
     public float? FocusY { get; set; }
     public float? FocusW { get; set; }

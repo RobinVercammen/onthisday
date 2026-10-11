@@ -225,6 +225,8 @@ public class PhotoIndexingService : BackgroundService
                 // Changed file: scan it for persons again
                 existing.PersonScore = null;
                 existing.PersonArea = null;
+                existing.CatScore = null;
+                existing.CatArea = null;
                 existing.FocusX = null;
                 existing.FocusY = null;
                 existing.FocusW = null;
@@ -280,7 +282,8 @@ public class PhotoIndexingService : BackgroundService
             newCount, updatedCount, toRemove.Count, await db.Photos.CountAsync(ct));
     }
 
-    // Incremental: only the given day's photos (2023 on) that were not scanned yet, so each day costs a few dozen photos
+    // Incremental: only the given day's photos (2023 on) that were not scanned yet, so each day costs a few dozen photos.
+    // Duplicates (same photo in several libraries) are scanned once and share the result.
     private async Task DetectPersonsAsync(int month, int day, CancellationToken ct)
     {
         if (!_personDetector.IsEnabled)
@@ -289,10 +292,14 @@ public class PhotoIndexingService : BackgroundService
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-        var pending = await db.Photos
-            .Where(p => p.Month == month && p.Day == day && p.MediaType == MediaType.Photo
-                && p.Year >= DetectMinYear && p.PersonScore == null)
+        var photos = await db.Photos
+            .Where(p => p.Month == month && p.Day == day && p.MediaType == MediaType.Photo && p.Year >= DetectMinYear)
             .ToListAsync(ct);
+
+        var pending = photos
+            .GroupBy(PhotoQueryService.DuplicateKey)
+            .Where(g => g.Any(p => p.PersonScore == null || p.CatScore == null))
+            .ToList();
 
         if (pending.Count == 0)
         {
@@ -301,30 +308,54 @@ public class PhotoIndexingService : BackgroundService
         }
 
         var stopwatch = Stopwatch.StartNew();
-        foreach (var photo in pending)
+        var scanned = 0;
+        foreach (var copies in pending)
         {
             ct.ThrowIfCancellationRequested();
-            try
+
+            var done = copies.FirstOrDefault(p => p.PersonScore != null && p.CatScore != null);
+            if (done == null)
             {
-                var result = _personDetector.Detect(photo.FilePath);
-                photo.PersonScore = result.Score;
-                photo.PersonArea = result.Area;
-                photo.FocusX = result.Focus?.X;
-                photo.FocusY = result.Focus?.Y;
-                photo.FocusW = result.Focus?.W;
-                photo.FocusH = result.Focus?.H;
+                done = copies.First();
+                try
+                {
+                    var result = _personDetector.Detect(done.FilePath);
+                    done.PersonScore = result.Person.Score;
+                    done.PersonArea = result.Person.Area;
+                    done.CatScore = result.Cat.Score;
+                    done.CatArea = result.Cat.Area;
+                    done.FocusX = result.Focus?.X;
+                    done.FocusY = result.Focus?.Y;
+                    done.FocusW = result.Focus?.W;
+                    done.FocusH = result.Focus?.H;
+                }
+                catch (Exception ex)
+                {
+                    // Score 0 so a broken file is not retried on every scan
+                    _logger.LogWarning(ex, "Person detection failed for {File}", done.FilePath);
+                    done.PersonScore = 0;
+                    done.PersonArea = 0;
+                    done.CatScore = 0;
+                    done.CatArea = 0;
+                }
+                scanned++;
             }
-            catch (Exception ex)
+
+            foreach (var copy in copies.Where(p => p != done))
             {
-                // Score 0 so a broken file is not retried on every scan
-                _logger.LogWarning(ex, "Person detection failed for {File}", photo.FilePath);
-                photo.PersonScore = 0;
-                photo.PersonArea = 0;
+                copy.PersonScore = done.PersonScore;
+                copy.PersonArea = done.PersonArea;
+                copy.CatScore = done.CatScore;
+                copy.CatArea = done.CatArea;
+                copy.FocusX = done.FocusX;
+                copy.FocusY = done.FocusY;
+                copy.FocusW = done.FocusW;
+                copy.FocusH = done.FocusH;
             }
         }
         await db.SaveChangesAsync(ct);
 
         _logger.LogInformation("Person detection: {Count} photos scanned for {Month}/{Day}, {Ms} ms per photo",
-            pending.Count, month, day, stopwatch.ElapsedMilliseconds / pending.Count);
+            scanned, month, day, scanned > 0 ? stopwatch.ElapsedMilliseconds / scanned : 0);
     }
 }

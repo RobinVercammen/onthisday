@@ -29,10 +29,11 @@ There are no tests or linting configured in this project.
 
 1. **PhotoIndexingService** (background hosted service) scans configured directories on startup and every N hours, extracts EXIF dates in parallel via **ExifService**, and batch-upserts **PhotoRecord** entries into SQLite via EF Core.
 2. **PhotoEndpoints** serves a single HTML page (`GET /`) with photo metadata embedded as JSON, plus media endpoints (`GET /photo/{id}`, `/photo/{id}/live`, `/photo/{id}/thumb`).
-   - `GET /api/day?month=&day=&minYear=2023&person=true&minScore=0.5&minArea=0.03` — JSON `[{ id, year, dateTaken, name, personScore, personArea }]` for one calendar day, photos only (month/day default to today). Read-only: with `person=true`, photos not scanned yet are left out.
-   - `GET /photo/{id}/image?w=314&h=246` — JPEG of exactly w×h (64–2048), cropped around the detected persons (centre crop when there are none); without `h` it fits within `w`. Photos only (404 for videos); rendered in memory and cached until midnight.
-3. **PersonDetector** (YOLOX-s ONNX, COCO class 0) runs inside PhotoIndexingService after each scan, on today's photos from 2023 on that have no `PersonScore` yet (incremental, one day at a time; no backfill). It stores the best score, the largest person area and the normalised person box (`Focus*`) on the record; a changed file is scanned again.
-4. **PhotoPage.html** (the entire frontend) uses two-level virtual scrolling — section-level (year groups) and card-level (individual photos) — via IntersectionObserver to handle large libraries without DOM bloat.
+   - `GET /api/day?month=&day=&minYear=2023&person=true&cat=true&minScore=0.5&minArea=0.03` — JSON `[{ id, year, dateTaken, name, personScore, personArea, catScore, catArea }]` for one calendar day, photos only (month/day default to today). Keeps photos with a person or a cat (per enabled flag). Read-only: photos not scanned yet are left out.
+   - `GET /photo/{id}/image?w=314&h=246` — JPEG of exactly w×h (64–2048), cropped around the detected persons and cats (centre crop when there are none); without `h` it fits within `w`. Photos only (404 for videos); rendered in memory and cached until midnight.
+3. **PersonDetector** (YOLOX-s ONNX, COCO class 0 person and 15 cat, one pass) runs inside PhotoIndexingService after each scan, on today's photos from 2023 on that have no `PersonScore` or `CatScore` yet (incremental, one day at a time; no backfill). It stores per class the best score and the largest area, plus the normalised union box of persons and cats (`Focus*`); a changed file is scanned again. Duplicates are scanned once and share the result.
+4. **Duplicates**: PhotoQueryService serves one copy per `(DateTaken, FileSize, MediaType)` within a day (same file in several libraries), in memory over the day's results; a copy with a Live Photo video wins.
+5. **PhotoPage.html** (the entire frontend) uses two-level virtual scrolling — section-level (year groups) and card-level (individual photos) — via IntersectionObserver to handle large libraries without DOM bloat.
 
 ### Key Source Layout
 
@@ -44,7 +45,7 @@ There are no tests or linting configured in this project.
 - `src/OnThisDay/Endpoints/PhotoEndpoints.cs` — HTTP routes, template rendering via string replacement, range request support, aggressive caching headers
 - `src/OnThisDay/Templates/PhotoPage.html` — Server-rendered template containing all HTML/CSS/JS (no build step)
 - `src/OnThisDay/Models/PhotoRecord.cs` — Data model with MediaType and DateSource enums
-- `src/OnThisDay/Services/PersonDetector.cs` — YOLOX-s person detection (letterbox, grid decode, no NMS)
+- `src/OnThisDay/Services/PersonDetector.cs` — YOLOX-s person and cat detection (letterbox, grid decode, no NMS)
 - `src/OnThisDay/Services/FocusCrop.cs` — Pure crop maths for the person-aware `/image` crop
 
 ### Person model
