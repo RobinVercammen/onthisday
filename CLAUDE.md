@@ -28,12 +28,14 @@ There are no tests or linting configured in this project.
 ### Data Flow
 
 1. **PhotoIndexingService** (background hosted service) scans configured directories on startup and every N hours, extracts EXIF dates in parallel via **ExifService**, and batch-upserts **PhotoRecord** entries into SQLite via EF Core.
-2. **PhotoEndpoints** serves a single HTML page (`GET /`) with photo metadata embedded as JSON, plus media endpoints (`GET /photo/{id}`, `/photo/{id}/live`, `/photo/{id}/thumb`).
+2. **PhotoEndpoints** serves two HTML pages, plus media endpoints (`GET /photo/{id}`, `/photo/{id}/live`, `/photo/{id}/thumb`).
+   - `GET /` — kid view (**KidPage.html**): today's `/api/day` selection with its defaults (persons or cats, 2023 on), one photo at a time, big previous/next buttons that wrap around, no swipe or zoom. Photo ids are embedded as JSON; images come from `/image`.
+   - `GET /full?month=&day=` — the full timeline (**PhotoPage.html**) with all photos and videos, metadata embedded as JSON.
    - `GET /api/day?month=&day=&minYear=2023&person=true&cat=true&minScore=0.5&minArea=0.03` — JSON `[{ id, year, dateTaken, name, personScore, personArea, catScore, catArea }]` for one calendar day, photos only (month/day default to today). Keeps photos with a person or a cat (per enabled flag). Read-only: photos not scanned yet are left out.
    - `GET /photo/{id}/image?w=314&h=246` — JPEG of exactly w×h (64–2048), cropped around the detected persons and cats (centre crop when there are none); without `h` it fits within `w`. Photos only (404 for videos); rendered in memory and cached until midnight.
 3. **PersonDetector** (YOLOX-s ONNX, COCO class 0 person and 15 cat, one pass) runs inside PhotoIndexingService after each scan, on today's photos from 2023 on that have no `PersonScore` or `CatScore` yet (incremental, one day at a time; no backfill). It stores per class the best score and the largest area, plus the normalised union box of persons and cats (`Focus*`); a changed file is scanned again. Duplicates are scanned once and share the result.
 4. **Duplicates**: PhotoQueryService serves one copy per `(DateTaken, FileSize, MediaType)` within a day (same file in several libraries), in memory over the day's results; a copy with a Live Photo video wins.
-5. **PhotoPage.html** (the entire frontend) uses two-level virtual scrolling — section-level (year groups) and card-level (individual photos) — via IntersectionObserver to handle large libraries without DOM bloat.
+5. **PhotoPage.html** (the full timeline) uses two-level virtual scrolling — section-level (year groups) and card-level (individual photos) — via IntersectionObserver to handle large libraries without DOM bloat.
 
 ### Key Source Layout
 
@@ -43,7 +45,8 @@ There are no tests or linting configured in this project.
 - `src/OnThisDay/Services/PhotoQueryService.cs` — Queries photos by month/day, groups by year
 - `src/OnThisDay/Data/AppDbContext.cs` — SQLite schema with compound index on (Month, Day) and unique index on FilePath
 - `src/OnThisDay/Endpoints/PhotoEndpoints.cs` — HTTP routes, template rendering via string replacement, range request support, aggressive caching headers
-- `src/OnThisDay/Templates/PhotoPage.html` — Server-rendered template containing all HTML/CSS/JS (no build step)
+- `src/OnThisDay/Templates/PhotoPage.html` — Full timeline template containing all its HTML/CSS/JS (no build step)
+- `src/OnThisDay/Templates/KidPage.html` — Kid view template (one photo, previous/next)
 - `src/OnThisDay/Models/PhotoRecord.cs` — Data model with MediaType and DateSource enums
 - `src/OnThisDay/Services/PersonDetector.cs` — YOLOX-s person and cat detection (letterbox, grid decode, no NMS)
 - `src/OnThisDay/Services/FocusCrop.cs` — Pure crop maths for the person-aware `/image` crop
@@ -68,6 +71,6 @@ The model is loaded from `models/yolox_s.onnx` next to the app (`/app/models/yol
 
 - **No templating engine**: PhotoEndpoints uses string replacement on the cached HTML template
 - **Producer-consumer indexing**: Parallel EXIF reads feed an unbounded channel; a single consumer writes to the DB in batches of 500
-- **Frontend is a single HTML file**: All CSS/JS is inline in PhotoPage.html — no bundler, no node_modules
+- **Frontend is one HTML file per page**: All CSS/JS is inline in PhotoPage.html and KidPage.html — no bundler, no node_modules
 - **Thumbnail caching**: Low-res thumbnail data URLs and video poster frames are cached client-side to avoid re-fetching on scroll
 - **Live Photo support**: Detects .mov sibling files during indexing and associates them with their parent image

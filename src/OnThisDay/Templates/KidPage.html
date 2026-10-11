@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="On This Day">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=2">
+    <title>On This Day — {{MONTH_NAME}} {{DAY}}</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        html, body {
+            height: 100%;
+            overflow: hidden;
+            background: #000;
+            color: #fff;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            /* No pinch zoom, double-tap zoom, text selection or long-press menus */
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-touch-callout: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            display: flex;
+            flex-direction: column;
+            height: 100dvh;
+            padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+        }
+
+        .stage {
+            flex: 1;
+            min-height: 0;
+            position: relative;
+        }
+
+        .stage img {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            pointer-events: none;
+        }
+
+        .year {
+            position: absolute;
+            top: 12px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 4px 16px;
+            border-radius: 999px;
+            background: rgba(0, 0, 0, 0.5);
+            font-size: 1.4rem;
+            font-weight: 600;
+        }
+
+        .buttons {
+            display: flex;
+            justify-content: space-between;
+            gap: 24px;
+            padding: 16px 24px;
+        }
+
+        button {
+            width: 112px;
+            height: 112px;
+            border: none;
+            border-radius: 50%;
+            background: #4A90D9;
+            color: #fff;
+            font-size: 4rem;
+            line-height: 1;
+            cursor: pointer;
+            touch-action: manipulation;
+        }
+
+        button.next { background: #8B5CF6; }
+        button:active { transform: scale(0.92); }
+
+        /* Landscape: buttons on either side of the photo */
+        @media (orientation: landscape) {
+            body { flex-direction: row; align-items: center; }
+            .buttons { display: contents; }
+            button.prev { order: -1; margin: 0 16px; }
+            button.next { order: 1; margin: 0 16px; }
+            .stage { align-self: stretch; }
+        }
+
+        .empty {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+            font-size: 1.6rem;
+            text-align: center;
+            padding: 24px;
+        }
+
+        .empty span { font-size: 6rem; }
+    </style>
+</head>
+<body>
+    {{CONTENT}}
+    <script>
+        (function () {
+            var photos = window.__photos;
+            if (!photos || photos.length === 0) return;
+
+            // /image fits the photo within w; round up so different screens share the server cache
+            var longest = Math.max(screen.width, screen.height) * (window.devicePixelRatio || 1);
+            var width = Math.min(2048, Math.ceil(longest / 256) * 256);
+            function url(i) { return '/photo/' + photos[i].id + '/image?w=' + width; }
+
+            var img = document.getElementById('photo');
+            var year = document.getElementById('year');
+            var index = 0;
+            var request = 0;
+
+            // Swap only once the next image is loaded, so the screen never goes blank
+            function show(i) {
+                index = (i + photos.length) % photos.length;
+                var current = ++request;
+                var next = new Image();
+                next.onload = function () {
+                    if (current !== request) return;
+                    img.src = next.src;
+                    year.textContent = photos[index].year;
+                };
+                next.src = url(index);
+                new Image().src = url((index + 1) % photos.length);
+                new Image().src = url((index - 1 + photos.length) % photos.length);
+            }
+
+            document.getElementById('prev').addEventListener('click', function () { show(index - 1); });
+            document.getElementById('next').addEventListener('click', function () { show(index + 1); });
+            document.addEventListener('keydown', function (e) {
+                if (e.key === 'ArrowLeft') show(index - 1);
+                if (e.key === 'ArrowRight') show(index + 1);
+            });
+
+            show(0);
+        })();
+
+        // iOS Safari ignores user-scalable=no, so block its pinch gestures and the context menu by hand
+        document.addEventListener('gesturestart', function (e) { e.preventDefault(); });
+        document.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+    </script>
+</body>
+</html>

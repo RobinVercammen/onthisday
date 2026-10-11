@@ -10,13 +10,14 @@ namespace OnThisDay.Endpoints;
 
 public static class PhotoEndpoints
 {
-    private static string? _templateCache;
+    private static readonly Dictionary<string, string> TemplateCache = new();
     private static byte[]? _appleTouchIconCache;
     private static readonly FileExtensionContentTypeProvider ContentTypeProvider = new();
 
     public static void MapPhotoEndpoints(this WebApplication app)
     {
-        app.MapGet("/", HandleHomePage);
+        app.MapGet("/", HandleKidPage);
+        app.MapGet("/full", HandleFullPage);
         app.MapGet("/photo/{hash}", HandlePhotoServe);
         app.MapGet("/photo/{hash}/thumb", HandleThumbnailServe);
         app.MapGet("/photo/{hash}/live", HandleLivePhotoServe);
@@ -25,22 +26,71 @@ public static class PhotoEndpoints
         app.MapGet("/apple-touch-icon.png", HandleAppleTouchIcon);
     }
 
-    private static async Task<IResult> HandleHomePage(
+    // One photo at a time with big previous/next buttons: the /api/day selection with its defaults
+    private static async Task<IResult> HandleKidPage(
+        HttpContext context,
+        PhotoQueryService queryService,
+        PersonDetector personDetector)
+    {
+        var (month, day) = GetDay(context);
+        var photos = FilterSubjects(
+            await queryService.GetPhotosForDay(month, day, minYear: 2023, photosOnly: true),
+            personDetector, person: true, cat: true, minScore: 0.5f, minArea: 0.03f);
+
+        var content = photos.Count == 0
+            ? """<div class="empty"><span>&#128247;</span>No photos today</div>"""
+            : "<script>window.__photos = ["
+              + string.Join(',', photos.Select(p => $"{{\"id\":\"{EscapeJson(p.FileHash)}\",\"year\":{p.Year}}}"))
+              + "];</script>"
+              + """
+                <div class="stage"><img id="photo" alt="" draggable="false"><div class="year" id="year"></div></div>
+                <div class="buttons">
+                    <button class="prev" id="prev" aria-label="Previous">&#9664;</button>
+                    <button class="next" id="next" aria-label="Next">&#9654;</button>
+                </div>
+                """;
+
+        var html = GetTemplate("KidPage.html")
+            .Replace("{{MONTH_NAME}}", CultureInfo.InvariantCulture.DateTimeFormat.GetMonthName(month))
+            .Replace("{{DAY}}", day.ToString())
+            .Replace("{{CONTENT}}", content);
+        return Results.Content(html, "text/html");
+    }
+
+    private static async Task<IResult> HandleFullPage(
         HttpContext context,
         PhotoQueryService queryService)
+    {
+        var (month, day) = GetDay(context);
+        var photosByYear = await queryService.GetPhotosForDay(month, day);
+
+        var html = RenderPage(month, day, photosByYear);
+        return Results.Content(html, "text/html");
+    }
+
+    private static (int Month, int Day) GetDay(HttpContext context)
     {
         var now = DateTime.Now;
         var month = int.TryParse(context.Request.Query["month"], out var m) ? m : now.Month;
         var day = int.TryParse(context.Request.Query["day"], out var d) ? d : now.Day;
 
-        // Clamp values
         month = Math.Clamp(month, 1, 12);
         day = Math.Clamp(day, 1, DateTime.DaysInMonth(2000, month)); // use leap year for max days
+        return (month, day);
+    }
 
-        var photosByYear = await queryService.GetPhotosForDay(month, day);
+    // With both on, a photo with a person or a cat is kept; unscanned photos are left out.
+    // Without the model nothing is ever scanned, so everything is kept (PersonDetector logs a warning at startup)
+    private static List<PhotoRecord> FilterSubjects(
+        List<PhotoRecord> photos, PersonDetector personDetector, bool person, bool cat, float minScore, float minArea)
+    {
+        if (!(person || cat) || !personDetector.IsEnabled)
+            return photos;
 
-        var html = RenderPage(month, day, photosByYear);
-        return Results.Content(html, "text/html");
+        return photos.Where(p =>
+                (person && p.PersonScore >= minScore && p.PersonArea >= minArea)
+                || (cat && p.CatScore >= minScore && p.CatArea >= minArea))
+            .ToList();
     }
 
     private static async Task<IResult> HandlePhotoServe(
@@ -119,8 +169,7 @@ public static class PhotoEndpoints
         return Results.File(bytes, "image/jpeg");
     }
 
-    // Read-only: detection runs in PhotoIndexingService, so with person/cat=true unscanned photos are left out.
-    // With both on, a photo with a person or a cat is kept.
+    // Read-only: detection runs in PhotoIndexingService, so with person/cat=true unscanned photos are left out
     private static async Task<IResult> HandleDayApi(
         PhotoQueryService queryService,
         PersonDetector personDetector,
@@ -136,14 +185,9 @@ public static class PhotoEndpoints
         var m = Math.Clamp(month ?? now.Month, 1, 12);
         var d = Math.Clamp(day ?? now.Day, 1, DateTime.DaysInMonth(2000, m)); // use leap year for max days
 
-        var photos = await queryService.GetPhotosForDay(m, d, minYear, photosOnly: true);
-
-        // Without the model nothing is ever scanned, so return everything (PersonDetector logs a warning at startup)
-        if ((person || cat) && personDetector.IsEnabled)
-            photos = photos.Where(p =>
-                    (person && p.PersonScore >= minScore && p.PersonArea >= minArea)
-                    || (cat && p.CatScore >= minScore && p.CatArea >= minArea))
-                .ToList();
+        var photos = FilterSubjects(
+            await queryService.GetPhotosForDay(m, d, minYear, photosOnly: true),
+            personDetector, person, cat, minScore, minArea);
 
         return Results.Json(photos.Select(p => new
         {
@@ -160,7 +204,7 @@ public static class PhotoEndpoints
 
     private static string RenderPage(int month, int day, Dictionary<int, List<PhotoRecord>> photosByYear)
     {
-        var template = GetTemplate();
+        var template = GetTemplate("PhotoPage.html");
         var monthName = CultureInfo.InvariantCulture.DateTimeFormat.GetMonthName(month);
 
         // Calculate prev/next day
@@ -225,9 +269,9 @@ public static class PhotoEndpoints
         return template
             .Replace("{{MONTH_NAME}}", monthName)
             .Replace("{{DAY}}", day.ToString())
-            .Replace("{{PREV_LINK}}", $"/?month={prevDate.Month}&day={prevDate.Day}")
+            .Replace("{{PREV_LINK}}", $"/full?month={prevDate.Month}&day={prevDate.Day}")
             .Replace("{{PREV_LABEL}}", prevLabel)
-            .Replace("{{NEXT_LINK}}", $"/?month={nextDate.Month}&day={nextDate.Day}")
+            .Replace("{{NEXT_LINK}}", $"/full?month={nextDate.Month}&day={nextDate.Day}")
             .Replace("{{NEXT_LABEL}}", nextLabel)
             .Replace("{{CONTENT}}", content.ToString());
     }
@@ -266,14 +310,17 @@ public static class PhotoEndpoints
         return Results.File(_appleTouchIconCache, "image/png");
     }
 
-    private static string GetTemplate()
+    private static string GetTemplate(string name)
     {
-        if (_templateCache != null)
-            return _templateCache;
-
-        var templatePath = Path.Combine(AppContext.BaseDirectory, "Templates", "PhotoPage.html");
-        _templateCache = File.ReadAllText(templatePath);
-        return _templateCache;
+        lock (TemplateCache)
+        {
+            if (!TemplateCache.TryGetValue(name, out var template))
+            {
+                template = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Templates", name));
+                TemplateCache[name] = template;
+            }
+            return template;
+        }
     }
 
     private static string Escape(string text)
